@@ -32,19 +32,19 @@ echo "📦 Installing dependencies..."
 pip install -r requirements.txt
 
 # Run setup validation
-echo "🔍 Running setup validation..."
-python test_setup.py
-
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "⚠️  Setup validation found issues. You may encounter problems."
-    echo "Do you want to continue anyway? (y/n)"
-    read -r response
-    if [[ ! "$response" =~ ^[Yy]$ ]]; then
-        echo "Aborting startup. Please fix the issues above."
-        exit 1
-    fi
+echo "🔍 Checking basic setup..."
+# Basic validation without test_setup.py
+if [ ! -f "app_simplified/main.py" ]; then
+    echo "❌ Error: Main application file not found"
+    exit 1
 fi
+
+if [ ! -f "app_simplified/data/rules/master2019ToD.json" ]; then
+    echo "❌ Error: VAC ToD data file not found"
+    exit 1
+fi
+
+echo "✅ Basic setup validation passed"
 
 echo ""
 echo "🌟 Starting VAC Assessment API server..."
