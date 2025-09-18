@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Main API service
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - AUTH_DISABLED=true  # Disable auth for local development
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - LOG_LEVEL=DEBUG
+      - MOCK_OPENAI_RESPONSES=false  # Ensure real OpenAI integration
+    volumes:
+      - ./app_simplified:/app/app_simplified  # Hot reload for development
+      - ./prompts:/app/prompts
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Next.js UI (if you want to run UI in Docker too)
+  ui:
+    build: ./ui
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=development
+    volumes:
+      - ./ui:/app  # Hot reload for development
+      - /app/node_modules  # Preserve node_modules
+    restart: unless-stopped
+
+  # Redis for caching (optional for testing)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # PostgreSQL (if you need persistent storage later)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     - POSTGRES_DB=gwsgpt
+  #     - POSTGRES_USER=gwsgpt
+  #     - POSTGRES_PASSWORD=devpassword
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  redis_data:
+  # postgres_data:
+
+# Development network
+networks:
+  default:
+    name: gwsgpt-dev

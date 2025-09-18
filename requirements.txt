@@ -1,0 +1,49 @@
+# VAC Assessment API Dependencies
+
+# Web Framework
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# Data Validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Azure OpenAI
+openai==1.3.8
+
+# Document Processing
+PyPDF2==3.0.1
+python-docx==1.1.0
+python-multipart==0.0.6
+
+# Text Processing and Search
+fuzzywuzzy==0.18.0
+python-levenshtein==0.23.0
+
+# Authentication (placeholder - would be replaced with Azure AD in production)
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# HTTP Client
+httpx==0.25.2
+
+# Development and Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Optional: Database (would be needed for production)
+# asyncpg==0.29.0  # PostgreSQL
+# motor==3.3.2     # MongoDB
+
+# Optional: Caching (would be good for production)
+# redis==5.0.1
+# aioredis==2.0.1
+
+# Optional: Message Queue (for file processing in production)  
+# azure-servicebus==7.11.4
+
+# Logging
+structlog==23.2.0
+
+# Utilities
+python-dateutil==2.8.2

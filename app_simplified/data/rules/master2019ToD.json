@@ -1,0 +1,5015 @@
+{
+  "schema_version": "0.4.0",
+  "source": {
+    "document": "VAC_All-Chapter-TOD-April-2019-EN.docx",
+    "origin": "Veterans Affairs Canada — 2019 Table of Disabilities",
+    "last_verified": "2025-08-10"
+  },
+  "metadata": {
+    "purpose": "Single, adjudicator-ready JSON covering all chapters with executable tables and routing where available; preserves user's legacy summaries for traceability.",
+    "notes": [
+      "Built by merging user's pasted JSON into the enhanced schema and normalizing table types.",
+      "Core computational chapters fully specified (2, 3, 9, 17, 20). Other chapters include instructions and any available level tables from user's source.",
+      "Where official table detail was not present in the user's file, chapter entries include instructions placeholders so the engine can still route and render UI prompts without fabricating data."
+    ]
+  },
+  "validation": {
+    "strict": true,
+    "on_unknown_rule": "warn",
+    "allow_partial_tables": false
+  },
+  "global": {
+    "definitions": {
+      "ordinal_level": {
+        "type": "object",
+        "required": [
+          "code",
+          "label",
+          "criteria"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "any_of": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "any_of"
+                  ]
+                }
+              ]
+            }
+          },
+          "rating": {
+            "type": [
+              "integer",
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "matrix_table": {
+        "type": "object",
+        "required": [
+          "rows",
+          "cols",
+          "values"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              }
+            }
+          },
+          "interpolation": {
+            "type": "string",
+            "enum": [
+              "none",
+              "round_down",
+              "nearest"
+            ],
+            "default": "nearest"
+          }
+        }
+      },
+      "numeric_band_table": {
+        "type": "object",
+        "required": [
+          "bands"
+        ],
+        "properties": {
+          "bands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "min",
+                "max",
+                "label",
+                "rating"
+              ],
+              "properties": {
+                "min": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "max": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "rating": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              }
+            }
+          },
+          "units": {
+            "type": "string"
+          }
+        }
+      },
+      "rom_table": {
+        "type": "object",
+        "required": [
+          "segments"
+        ],
+        "properties": {
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "motions"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "motions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "motion",
+                      "normal_range",
+                      "cutpoints"
+                    ],
+                    "properties": {
+                      "motion": {
+                        "type": "string"
+                      },
+                      "normal_range": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "cutpoints": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "threshold",
+                            "level"
+                          ],
+                          "properties": {
+                            "threshold": {
+                              "type": "number"
+                            },
+                            "level": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "aggregation": {
+            "type": "string",
+            "enum": [
+              "worst_motion",
+              "weighted_sum",
+              "average"
+            ],
+            "default": "worst_motion"
+          }
+        }
+      }
+    },
+    "calculation_methods": {
+      "DSHL": {
+        "description": "Derived Summed Hearing Loss using 500, 1000, 2000, 3000 Hz thresholds.",
+        "inputs": [
+          "500Hz",
+          "1000Hz",
+          "2000Hz",
+          "3000Hz"
+        ],
+        "non_entitled_ear_floor": 95,
+        "special_rules": [
+          "If 4000Hz exceptional loss present, apply 4k rule per chapter instructions.",
+          "Use monaural fallback of 95 for non-entitled ear when indicated."
+        ]
+      },
+      "PCT_transform": {
+        "description": "Transform Medical Impairment (MI) to MI' using PCT matrix.",
+        "input": [
+          "MI",
+          "contribution_band"
+        ],
+        "output": "MI_prime"
+      },
+      "QOL_conversion": {
+        "description": "Map QOL Level to percentage band using Table 2.2.",
+        "input": [
+          "QOL_level"
+        ],
+        "output": "percentage_band"
+      }
+    },
+    "overlap_map": [
+      {
+        "manifestation": "cognitive_impairment",
+        "ownership_priority": [
+          "20",
+          "21"
+        ],
+        "explanation": "Route cognition to Chapter 20 when neurological deficits are evidenced; otherwise remain under Chapter 21."
+      }
+    ]
+  },
+  "overall_directions": {
+    "order_of_operations": [
+      "Confirm entitlement and chronicity.",
+      "Identify chapter(s) by condition and loss of function.",
+      "Follow chapter-specific 'Steps to Determine Assessment'.",
+      "Compute Medical Impairment (MI) per table.",
+      "Apply PCT (if applicable) to obtain MI'.",
+      "Determine QOL Level and convert via Table 2.2.",
+      "Resolve overlaps and routing per routing_rules.",
+      "Combine results according to VAC combination rules."
+    ],
+    "combination_method": "combined_values",
+    "payable_cap_percent": 100,
+    "prior_award_policy": {
+      "respect_effective_date": true,
+      "no_downgrade_without_new_chronic_evidence": true,
+      "selection_rule": "take_higher_of_prior_vs_new",
+      "carry_forward_components": [
+        "20.8_headaches"
+      ],
+      "notes": [
+        "If a prior psychiatric MI exists, keep the higher of prior vs. current unless new chronic evidence supports a reduction.",
+        "Specific components like headaches may be carried forward if not re-rated from fresh evidence."
+      ]
+    },
+    "route_suppressions": [
+      {
+        "if_bracket_active_in_chapter": "21",
+        "suppress_tags": [
+          "EB_psych_manifestations"
+        ],
+        "notes": "Suppress EB manifestations when Chapter 21 bracket active."
+      },
+      {
+        "if_bracket_active_in_chapter": "21",
+        "suppress_paths": [
+          "chapters.20.tables.20.1_emotional_behavioral"
+        ],
+        "notes": "Fallback path-based suppression if EB rows not tagged."
+      }
+    ],
+    "output_rules": [
+      "Always print official table number and table title from JSON for each MI.",
+      "Always print the exact descriptor line stored under the selected rating.",
+      "If evidence for a threshold is missing, rate the lower threshold and mark the missing datum as 'Not documented'.",
+      "For partial entitlement, display the fraction and show the pre- and post-fraction totals.",
+      "Do not both bracket and apply PCT to the same MI result."
+    ]
+  },
+  "conditions": {
+    "2_2.2_qol_addition_by_mi_band": {
+      "id": "2_2.2_qol_addition_by_mi_band",
+      "name": "Quality of Life Conversion Table",
+      "chapter": "2",
+      "chapter_title": "Quality of Life (QOL)",
+      "description": "Condition from Quality of Life (QOL)",
+      "table_reference": "2.2_qol_addition_by_mi_band",
+      "symptoms": [],
+      "rating_criteria": {
+        "mi_bands": [
+          {
+            "mi_min": 1,
+            "mi_max": 10,
+            "L1": 1,
+            "L2": 2,
+            "L3": null
+          },
+          {
+            "mi_min": 11,
+            "mi_max": 20,
+            "L1": 2,
+            "L2": 3,
+            "L3": 5
+          },
+          {
+            "mi_min": 21,
+            "mi_max": 30,
+            "L1": 3,
+            "L2": 5,
+            "L3": 7
+          },
+          {
+            "mi_min": 31,
+            "mi_max": 40,
+            "L1": 4,
+            "L2": 6,
+            "L3": 9
+          },
+          {
+            "mi_min": 41,
+            "mi_max": 50,
+            "L1": 5,
+            "L2": 7,
+            "L3": 11
+          },
+          {
+            "mi_min": 51,
+            "mi_max": 60,
+            "L1": 6,
+            "L2": 9,
+            "L3": 13
+          },
+          {
+            "mi_min": 61,
+            "mi_max": 70,
+            "L1": 7,
+            "L2": 11,
+            "L3": 15
+          },
+          {
+            "mi_min": 71,
+            "mi_max": 80,
+            "L1": 8,
+            "L2": 13,
+            "L3": 17
+          },
+          {
+            "mi_min": 81,
+            "mi_max": 100,
+            "L1": 10,
+            "L2": 15,
+            "L3": 20
+          }
+        ],
+        "notes": "VAC 2019 ToD — Table 2.2 QOL conversion by MI band (L1–L3).",
+        "table_number": "2.2",
+        "title": "Quality of Life Conversion Table"
+      },
+      "assessment_notes": "Refer to Chapter 2: Quality of Life (QOL)",
+      "keywords": [
+        "quality of life conversion table",
+        "2.2 qol addition by mi band",
+        "quality of life (qol)"
+      ],
+      "source_table": {
+        "mi_bands": [
+          {
+            "mi_min": 1,
+            "mi_max": 10,
+            "L1": 1,
+            "L2": 2,
+            "L3": null
+          },
+          {
+            "mi_min": 11,
+            "mi_max": 20,
+            "L1": 2,
+            "L2": 3,
+            "L3": 5
+          },
+          {
+            "mi_min": 21,
+            "mi_max": 30,
+            "L1": 3,
+            "L2": 5,
+            "L3": 7
+          },
+          {
+            "mi_min": 31,
+            "mi_max": 40,
+            "L1": 4,
+            "L2": 6,
+            "L3": 9
+          },
+          {
+            "mi_min": 41,
+            "mi_max": 50,
+            "L1": 5,
+            "L2": 7,
+            "L3": 11
+          },
+          {
+            "mi_min": 51,
+            "mi_max": 60,
+            "L1": 6,
+            "L2": 9,
+            "L3": 13
+          },
+          {
+            "mi_min": 61,
+            "mi_max": 70,
+            "L1": 7,
+            "L2": 11,
+            "L3": 15
+          },
+          {
+            "mi_min": 71,
+            "mi_max": 80,
+            "L1": 8,
+            "L2": 13,
+            "L3": 17
+          },
+          {
+            "mi_min": 81,
+            "mi_max": 100,
+            "L1": 10,
+            "L2": 15,
+            "L3": 20
+          }
+        ],
+        "notes": "VAC 2019 ToD — Table 2.2 QOL conversion by MI band (L1–L3).",
+        "table_number": "2.2",
+        "title": "Quality of Life Conversion Table"
+      }
+    },
+    "3_3.1": {
+      "id": "3_3.1",
+      "name": "Partially Contributing Table",
+      "chapter": "3",
+      "chapter_title": "Partially Contributing Impairment (PCT)",
+      "description": "Condition from Partially Contributing Impairment (PCT)",
+      "table_reference": "3.1",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "matrix_table",
+        "rows": [
+          "Complete",
+          "About 3/4",
+          "About 1/2",
+          "About 1/4",
+          "Not at all"
+        ],
+        "cols": [
+          ">=95",
+          "75–94",
+          "55–74",
+          "35–54",
+          "15–34",
+          "<15"
+        ],
+        "values": [
+          [
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI"
+          ],
+          [
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI"
+          ],
+          [
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI"
+          ],
+          [
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI"
+          ],
+          [
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        ],
+        "interpolation": "none",
+        "table_number": "3.1",
+        "title": "Partially Contributing Table"
+      },
+      "assessment_notes": "Refer to Chapter 3: Partially Contributing Impairment (PCT)",
+      "keywords": [
+        "partially contributing table",
+        "3.1",
+        "partially contributing impairment (pct)"
+      ],
+      "source_table": {
+        "type": "matrix_table",
+        "rows": [
+          "Complete",
+          "About 3/4",
+          "About 1/2",
+          "About 1/4",
+          "Not at all"
+        ],
+        "cols": [
+          ">=95",
+          "75–94",
+          "55–74",
+          "35–54",
+          "15–34",
+          "<15"
+        ],
+        "values": [
+          [
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI"
+          ],
+          [
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI"
+          ],
+          [
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI"
+          ],
+          [
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI"
+          ],
+          [
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        ],
+        "interpolation": "none",
+        "table_number": "3.1",
+        "title": "Partially Contributing Table"
+      }
+    },
+    "8_8.1_visual_levels": {
+      "id": "8_8.1_visual_levels",
+      "name": "8.1 Visual Levels",
+      "chapter": "8",
+      "chapter_title": "Visual Impairment",
+      "description": "Condition from Visual Impairment",
+      "table_reference": "8.1_visual_levels",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Minor acuity loss."
+            ],
+            "rating": 5
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Moderate field restriction."
+            ],
+            "rating": 13
+          }
+        ]
+      },
+      "assessment_notes": "Refer to Chapter 8: Visual Impairment",
+      "keywords": [
+        "8.1 visual levels",
+        "8.1 visual levels",
+        "visual impairment"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Minor acuity loss."
+            ],
+            "rating": 5
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Moderate field restriction."
+            ],
+            "rating": 13
+          }
+        ]
+      }
+    },
+    "9_9.1_hearing_loss": {
+      "id": "9_9.1_hearing_loss",
+      "name": "Hearing Loss",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "description": "Condition from Hearing Loss and Ear Conditions",
+      "table_reference": "9.1_hearing_loss",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "numeric_band_table",
+        "units": "DSHL points",
+        "bands": [
+          {
+            "min": 0,
+            "max": 149,
+            "label": "Nil/Minimal",
+            "rating": 0
+          },
+          {
+            "min": 150,
+            "max": 199,
+            "label": "Mild",
+            "rating": "5-9"
+          },
+          {
+            "min": 200,
+            "max": 299,
+            "label": "Moderate",
+            "rating": "13-19"
+          },
+          {
+            "min": 300,
+            "max": 399,
+            "label": "Moderate-Severe",
+            "rating": "25-31"
+          },
+          {
+            "min": 400,
+            "max": 499,
+            "label": "Severe",
+            "rating": "40-49"
+          },
+          {
+            "min": 500,
+            "max": null,
+            "label": "Profound",
+            "rating": "58-68"
+          }
+        ],
+        "table_number": "9.1",
+        "title": "Hearing Loss"
+      },
+      "assessment_notes": "Refer to Chapter 9: Hearing Loss and Ear Conditions",
+      "keywords": [
+        "hearing loss",
+        "9.1 hearing loss",
+        "hearing loss and ear conditions"
+      ],
+      "source_table": {
+        "type": "numeric_band_table",
+        "units": "DSHL points",
+        "bands": [
+          {
+            "min": 0,
+            "max": 149,
+            "label": "Nil/Minimal",
+            "rating": 0
+          },
+          {
+            "min": 150,
+            "max": 199,
+            "label": "Mild",
+            "rating": "5-9"
+          },
+          {
+            "min": 200,
+            "max": 299,
+            "label": "Moderate",
+            "rating": "13-19"
+          },
+          {
+            "min": 300,
+            "max": 399,
+            "label": "Moderate-Severe",
+            "rating": "25-31"
+          },
+          {
+            "min": 400,
+            "max": 499,
+            "label": "Severe",
+            "rating": "40-49"
+          },
+          {
+            "min": 500,
+            "max": null,
+            "label": "Profound",
+            "rating": "58-68"
+          }
+        ],
+        "table_number": "9.1",
+        "title": "Hearing Loss"
+      }
+    },
+    "9_9.2_otitis_eustachian": {
+      "id": "9_9.2_otitis_eustachian",
+      "name": "Otitis Media and Eustachian Tube Dysfunction",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "description": "Condition from Hearing Loss and Ear Conditions",
+      "table_reference": "9.2_otitis_eustachian",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "Asymptomatic or episodic; no ongoing treatment"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Intermittent infections; medical therapy 1–2×/yr"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "TWO",
+            "label": "Two",
+            "criteria": [
+              "Recurrent infections; persistent dysfunction; regular medication"
+            ],
+            "rating": 2
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Chronic suppuration; tympanic membrane damage; hearing impact"
+            ],
+            "rating": 5
+          }
+        ],
+        "table_number": "9.2",
+        "title": "Otitis Media and Eustachian Tube Dysfunction"
+      },
+      "assessment_notes": "Refer to Chapter 9: Hearing Loss and Ear Conditions",
+      "keywords": [
+        "otitis media and eustachian tube dysfunction",
+        "9.2 otitis eustachian",
+        "hearing loss and ear conditions"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "Asymptomatic or episodic; no ongoing treatment"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Intermittent infections; medical therapy 1–2×/yr"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "TWO",
+            "label": "Two",
+            "criteria": [
+              "Recurrent infections; persistent dysfunction; regular medication"
+            ],
+            "rating": 2
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Chronic suppuration; tympanic membrane damage; hearing impact"
+            ],
+            "rating": 5
+          }
+        ],
+        "table_number": "9.2",
+        "title": "Otitis Media and Eustachian Tube Dysfunction"
+      }
+    },
+    "9_9.3_tinnitus": {
+      "id": "9_9.3_tinnitus",
+      "name": "Tinnitus",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "description": "Condition from Hearing Loss and Ear Conditions",
+      "table_reference": "9.3_tinnitus",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No consistent tinnitus or only fleeting episodes"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Occasional tinnitus without sleep or concentration impact"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Persistent tinnitus; requires strategies/devices; impacts rest or focus"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Severe, near-constant tinnitus with marked daily interference despite management"
+            ],
+            "rating": 10
+          }
+        ],
+        "table_number": "9.3",
+        "title": "Tinnitus"
+      },
+      "assessment_notes": "Refer to Chapter 9: Hearing Loss and Ear Conditions",
+      "keywords": [
+        "tinnitus",
+        "9.3 tinnitus",
+        "hearing loss and ear conditions"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No consistent tinnitus or only fleeting episodes"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Occasional tinnitus without sleep or concentration impact"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Persistent tinnitus; requires strategies/devices; impacts rest or focus"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Severe, near-constant tinnitus with marked daily interference despite management"
+            ],
+            "rating": 10
+          }
+        ],
+        "table_number": "9.3",
+        "title": "Tinnitus"
+      }
+    },
+    "9_9.4_vertigo_disequilibrium": {
+      "id": "9_9.4_vertigo_disequilibrium",
+      "name": "9.4 Vertigo Disequilibrium",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "description": "Condition from Hearing Loss and Ear Conditions",
+      "table_reference": "9.4_vertigo_disequilibrium",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No true vertigo; occasional disequilibrium only"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Occasional vertigo; minimal ADL impact; no falls"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Recurrent vertigo with activity limitation; rare falls"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Frequent episodes; requires assistance/device; fall risk"
+            ],
+            "rating": 10
+          },
+          {
+            "code": "FIFTEEN",
+            "label": "Fifteen",
+            "criteria": [
+              "Severe, disabling disequilibrium with regular falls or inability to ambulate safely"
+            ],
+            "rating": 15
+          }
+        ]
+      },
+      "assessment_notes": "Refer to Chapter 9: Hearing Loss and Ear Conditions",
+      "keywords": [
+        "9.4 vertigo disequilibrium",
+        "9.4 vertigo disequilibrium",
+        "hearing loss and ear conditions"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No true vertigo; occasional disequilibrium only"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Occasional vertigo; minimal ADL impact; no falls"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Recurrent vertigo with activity limitation; rare falls"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Frequent episodes; requires assistance/device; fall risk"
+            ],
+            "rating": 10
+          },
+          {
+            "code": "FIFTEEN",
+            "label": "Fifteen",
+            "criteria": [
+              "Severe, disabling disequilibrium with regular falls or inability to ambulate safely"
+            ],
+            "rating": 15
+          }
+        ]
+      }
+    },
+    "17_17.ROM_spine": {
+      "id": "17_17.ROM_spine",
+      "name": "Spine Range of Motion Impairment",
+      "chapter": "17",
+      "chapter_title": "Musculoskeletal (MSK)",
+      "description": "Condition from Musculoskeletal (MSK)",
+      "table_reference": "17.ROM_spine",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "rom_table",
+        "segments": [
+          {
+            "name": "Cervical",
+            "motions": [
+              {
+                "motion": "Flexion",
+                "normal_range": [
+                  0,
+                  45
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 30,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Extension",
+                "normal_range": [
+                  0,
+                  45
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 30,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Rotation L",
+                "normal_range": [
+                  0,
+                  80
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 55,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 35,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Rotation R",
+                "normal_range": [
+                  0,
+                  80
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 55,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 35,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "severe"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Thoracolumbar",
+            "motions": [
+              {
+                "motion": "Flexion",
+                "normal_range": [
+                  0,
+                  60
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 45,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 30,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Extension",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Lateral Bend L",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Lateral Bend R",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "aggregation": "worst_motion",
+        "table_number": "17.ROM",
+        "title": "Spine"
+      },
+      "assessment_notes": "Refer to Chapter 17: Musculoskeletal (MSK)",
+      "keywords": [
+        "spine range of motion impairment",
+        "17.rom spine",
+        "musculoskeletal (msk)",
+        "spine",
+        "back",
+        "musculoskeletal",
+        "msk",
+        "vertebral",
+        "chronic back pain",
+        "low back pain",
+        "spine pain",
+        "vertebral",
+        "lumbar",
+        "thoracic",
+        "cervical"
+      ],
+      "source_table": {
+        "type": "rom_table",
+        "segments": [
+          {
+            "name": "Cervical",
+            "motions": [
+              {
+                "motion": "Flexion",
+                "normal_range": [
+                  0,
+                  45
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 30,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Extension",
+                "normal_range": [
+                  0,
+                  45
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 30,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Rotation L",
+                "normal_range": [
+                  0,
+                  80
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 55,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 35,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Rotation R",
+                "normal_range": [
+                  0,
+                  80
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 55,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 35,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "severe"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Thoracolumbar",
+            "motions": [
+              {
+                "motion": "Flexion",
+                "normal_range": [
+                  0,
+                  60
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 45,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 30,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Extension",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Lateral Bend L",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Lateral Bend R",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "aggregation": "worst_motion",
+        "table_number": "17.ROM",
+        "title": "Spine"
+      }
+    },
+    "17_17.ankylosis_optimal_positions": {
+      "id": "17_17.ankylosis_optimal_positions",
+      "name": "Optimal Positions",
+      "chapter": "17",
+      "chapter_title": "Musculoskeletal (MSK)",
+      "description": "Condition from Musculoskeletal (MSK)",
+      "table_reference": "17.ankylosis_optimal_positions",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "OPTIMAL",
+            "label": "Optimal position",
+            "criteria": [
+              "Ankylosis in functionally optimal position"
+            ],
+            "rating": "lower_band"
+          },
+          {
+            "code": "SUBOPTIMAL",
+            "label": "Suboptimal position",
+            "criteria": [
+              "Ankylosis in non-optimal position"
+            ],
+            "rating": "higher_band"
+          }
+        ],
+        "table_number": "17.ankylosis",
+        "title": "Optimal Positions"
+      },
+      "assessment_notes": "Refer to Chapter 17: Musculoskeletal (MSK)",
+      "keywords": [
+        "optimal positions",
+        "17.ankylosis optimal positions",
+        "musculoskeletal (msk)",
+        "spine",
+        "back",
+        "musculoskeletal",
+        "msk",
+        "vertebral"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "OPTIMAL",
+            "label": "Optimal position",
+            "criteria": [
+              "Ankylosis in functionally optimal position"
+            ],
+            "rating": "lower_band"
+          },
+          {
+            "code": "SUBOPTIMAL",
+            "label": "Suboptimal position",
+            "criteria": [
+              "Ankylosis in non-optimal position"
+            ],
+            "rating": "higher_band"
+          }
+        ],
+        "table_number": "17.ankylosis",
+        "title": "Optimal Positions"
+      }
+    },
+    "20_20.1_cognition": {
+      "id": "20_20.1_cognition",
+      "name": "20.1 Cognition",
+      "chapter": "20",
+      "chapter_title": "Neurological",
+      "description": "Condition from Neurological",
+      "table_reference": "20.1_cognition",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No persistent deficits on history or testing"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Subjective complaints with minor executive/attention deficits; independent ADLs"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Clear deficits in memory/attention/executive function; needs strategies/supervision for complex tasks"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "SEV",
+            "label": "Severe",
+            "criteria": [
+              "Dependence for most instrumental ADLs; cannot manage safety-critical tasks"
+            ],
+            "rating": 10
+          },
+          {
+            "code": "PROF",
+            "label": "Profound",
+            "criteria": [
+              "Dependence for basic ADLs; pervasive cognitive failure"
+            ],
+            "rating": 15
+          }
+        ]
+      },
+      "assessment_notes": "Refer to Chapter 20: Neurological",
+      "keywords": [
+        "20.1 cognition",
+        "20.1 cognition",
+        "neurological"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No persistent deficits on history or testing"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Subjective complaints with minor executive/attention deficits; independent ADLs"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Clear deficits in memory/attention/executive function; needs strategies/supervision for complex tasks"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "SEV",
+            "label": "Severe",
+            "criteria": [
+              "Dependence for most instrumental ADLs; cannot manage safety-critical tasks"
+            ],
+            "rating": 10
+          },
+          {
+            "code": "PROF",
+            "label": "Profound",
+            "criteria": [
+              "Dependence for basic ADLs; pervasive cognitive failure"
+            ],
+            "rating": 15
+          }
+        ]
+      }
+    },
+    "20_20.6_bowel_bladder": {
+      "id": "20_20.6_bowel_bladder",
+      "name": "20.6 Bowel Bladder",
+      "chapter": "20",
+      "chapter_title": "Neurological",
+      "description": "Condition from Neurological",
+      "table_reference": "20.6_bowel_bladder",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "Continent; occasional constipation/diarrhea without meds OR urinary urgency/frequency without meds"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Obstructed voiding with hesitancy/diminished stream; symptomatic; UTI 1–2/yr"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "TWO",
+            "label": "Two",
+            "criteria": [
+              "Bowel: minor diet alterations or fecal soiling; OR symptomatic requiring intermittent medication. Bladder: recurrent LUTS needing medication"
+            ],
+            "rating": 2
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Significant incontinence or severe dysfunction requiring continuous management"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Complete incontinence or need for indwelling devices with complications"
+            ],
+            "rating": 10
+          }
+        ]
+      },
+      "assessment_notes": "Refer to Chapter 20: Neurological",
+      "keywords": [
+        "20.6 bowel bladder",
+        "20.6 bowel bladder",
+        "neurological"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "Continent; occasional constipation/diarrhea without meds OR urinary urgency/frequency without meds"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Obstructed voiding with hesitancy/diminished stream; symptomatic; UTI 1–2/yr"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "TWO",
+            "label": "Two",
+            "criteria": [
+              "Bowel: minor diet alterations or fecal soiling; OR symptomatic requiring intermittent medication. Bladder: recurrent LUTS needing medication"
+            ],
+            "rating": 2
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Significant incontinence or severe dysfunction requiring continuous management"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Complete incontinence or need for indwelling devices with complications"
+            ],
+            "rating": 10
+          }
+        ]
+      }
+    },
+    "20_20.8_headaches": {
+      "id": "20_20.8_headaches",
+      "name": "Loss of Function — Headaches",
+      "chapter": "20",
+      "chapter_title": "Neurological",
+      "description": "Condition from Neurological",
+      "table_reference": "20.8_headaches",
+      "symptoms": [],
+      "rating_criteria": {
+        "id": "20.8_headaches",
+        "title": "Loss of Function — Headaches",
+        "rating_scale": "MI",
+        "rows": [
+          {
+            "mi": 2,
+            "criteria_text": [
+              "Headache experienced less than 30 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "days_per_year": {
+                "min": 0,
+                "max": 29
+              },
+              "bed_rest": [
+                "none",
+                "occasional"
+              ]
+            }
+          },
+          {
+            "mi": 4,
+            "criteria_text": [
+              "Headache experienced less than 30 days per year. Bed rest is required during most episodes; or",
+              "Headache experienced 30–100 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "any_of": [
+                {
+                  "days_per_year": {
+                    "min": 0,
+                    "max": 29
+                  },
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "days_per_year": {
+                    "min": 30,
+                    "max": 100
+                  },
+                  "bed_rest": [
+                    "none",
+                    "occasional"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "mi": 9,
+            "criteria_text": [
+              "Headache is experienced 30–100 days per year and bed rest is required during most episodes; or",
+              "Headache occurs on a weekly basis and bed rest is required during most episodes; or",
+              "Headache experienced on more than 100 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "any_of": [
+                {
+                  "days_per_year": {
+                    "min": 30,
+                    "max": 100
+                  },
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "weekly_basis": true,
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "days_per_year": {
+                    "min": 101,
+                    "max": 366
+                  },
+                  "bed_rest": [
+                    "none",
+                    "occasional"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "mi": 13,
+            "criteria_text": [
+              "Headache experienced on more than 100 days per year and is persistent and unremitting. Bed rest is required during most episodes."
+            ],
+            "criteria_structured": {
+              "all_of": [
+                {
+                  "days_per_year": {
+                    "min": 101,
+                    "max": 366
+                  }
+                },
+                {
+                  "persistent_unremitting": true
+                },
+                {
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "notes": "Ratings reflect VAC 2019 ToD Table 20.8. Criteria paraphrased for structure; keep source text in documents/ for reference."
+      },
+      "assessment_notes": "Refer to Chapter 20: Neurological",
+      "keywords": [
+        "loss of function — headaches",
+        "20.8 headaches",
+        "neurological"
+      ],
+      "source_table": {
+        "id": "20.8_headaches",
+        "title": "Loss of Function — Headaches",
+        "rating_scale": "MI",
+        "rows": [
+          {
+            "mi": 2,
+            "criteria_text": [
+              "Headache experienced less than 30 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "days_per_year": {
+                "min": 0,
+                "max": 29
+              },
+              "bed_rest": [
+                "none",
+                "occasional"
+              ]
+            }
+          },
+          {
+            "mi": 4,
+            "criteria_text": [
+              "Headache experienced less than 30 days per year. Bed rest is required during most episodes; or",
+              "Headache experienced 30–100 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "any_of": [
+                {
+                  "days_per_year": {
+                    "min": 0,
+                    "max": 29
+                  },
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "days_per_year": {
+                    "min": 30,
+                    "max": 100
+                  },
+                  "bed_rest": [
+                    "none",
+                    "occasional"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "mi": 9,
+            "criteria_text": [
+              "Headache is experienced 30–100 days per year and bed rest is required during most episodes; or",
+              "Headache occurs on a weekly basis and bed rest is required during most episodes; or",
+              "Headache experienced on more than 100 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "any_of": [
+                {
+                  "days_per_year": {
+                    "min": 30,
+                    "max": 100
+                  },
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "weekly_basis": true,
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "days_per_year": {
+                    "min": 101,
+                    "max": 366
+                  },
+                  "bed_rest": [
+                    "none",
+                    "occasional"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "mi": 13,
+            "criteria_text": [
+              "Headache experienced on more than 100 days per year and is persistent and unremitting. Bed rest is required during most episodes."
+            ],
+            "criteria_structured": {
+              "all_of": [
+                {
+                  "days_per_year": {
+                    "min": 101,
+                    "max": 366
+                  }
+                },
+                {
+                  "persistent_unremitting": true
+                },
+                {
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "notes": "Ratings reflect VAC 2019 ToD Table 20.8. Criteria paraphrased for structure; keep source text in documents/ for reference."
+      }
+    },
+    "21_21.1_psychiatric": {
+      "id": "21_21.1_psychiatric",
+      "name": "21.1 Psychiatric",
+      "chapter": "21",
+      "chapter_title": "Psychiatric",
+      "description": "Condition from Psychiatric",
+      "table_reference": "21.1_psychiatric",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Occasional symptoms; minimal impact."
+            ],
+            "rating": 5
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Frequent flashbacks; irritability."
+            ],
+            "rating": 13
+          },
+          {
+            "code": "MODSEV",
+            "label": "Moderate-Severe",
+            "criteria": [
+              "Persistent nightmares; withdrawn."
+            ],
+            "rating": 25
+          },
+          {
+            "code": "SEV",
+            "label": "Severe",
+            "criteria": [
+              "Vivid flashbacks; hypervigilance."
+            ],
+            "rating": 40
+          },
+          {
+            "code": "PROF",
+            "label": "Profound",
+            "criteria": [
+              "Constant flashbacks; profound isolation."
+            ],
+            "rating": 78
+          }
+        ]
+      },
+      "assessment_notes": "Refer to Chapter 21: Psychiatric",
+      "keywords": [
+        "21.1 psychiatric",
+        "21.1 psychiatric",
+        "psychiatric"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Occasional symptoms; minimal impact."
+            ],
+            "rating": 5
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Frequent flashbacks; irritability."
+            ],
+            "rating": 13
+          },
+          {
+            "code": "MODSEV",
+            "label": "Moderate-Severe",
+            "criteria": [
+              "Persistent nightmares; withdrawn."
+            ],
+            "rating": 25
+          },
+          {
+            "code": "SEV",
+            "label": "Severe",
+            "criteria": [
+              "Vivid flashbacks; hypervigilance."
+            ],
+            "rating": 40
+          },
+          {
+            "code": "PROF",
+            "label": "Profound",
+            "criteria": [
+              "Constant flashbacks; profound isolation."
+            ],
+            "rating": 78
+          }
+        ]
+      }
+    },
+    "24_24.01_post_treatment": {
+      "id": "24_24.01_post_treatment",
+      "name": "24.01 Post Treatment",
+      "chapter": "24",
+      "chapter_title": "Tuberculosis",
+      "description": "Condition from Tuberculosis",
+      "table_reference": "24.01_post_treatment",
+      "symptoms": [],
+      "rating_criteria": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "T1",
+            "label": "First six months",
+            "criteria": [
+              "Post-hospital treatment period"
+            ],
+            "rating": 100
+          },
+          {
+            "code": "T2",
+            "label": "Second six months",
+            "criteria": [
+              "Mandatory minimum"
+            ],
+            "rating": "60% minimum"
+          },
+          {
+            "code": "T3",
+            "label": "Third six months",
+            "criteria": [
+              "Mandatory minimum"
+            ],
+            "rating": "30% minimum"
+          },
+          {
+            "code": "T4",
+            "label": "Thereafter",
+            "criteria": [
+              "Based on clinical evaluation"
+            ],
+            "rating": "per clinical"
+          }
+        ]
+      },
+      "assessment_notes": "Refer to Chapter 24: Tuberculosis",
+      "keywords": [
+        "24.01 post treatment",
+        "24.01 post treatment",
+        "tuberculosis"
+      ],
+      "source_table": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "T1",
+            "label": "First six months",
+            "criteria": [
+              "Post-hospital treatment period"
+            ],
+            "rating": 100
+          },
+          {
+            "code": "T2",
+            "label": "Second six months",
+            "criteria": [
+              "Mandatory minimum"
+            ],
+            "rating": "60% minimum"
+          },
+          {
+            "code": "T3",
+            "label": "Third six months",
+            "criteria": [
+              "Mandatory minimum"
+            ],
+            "rating": "30% minimum"
+          },
+          {
+            "code": "T4",
+            "label": "Thereafter",
+            "criteria": [
+              "Based on clinical evaluation"
+            ],
+            "rating": "per clinical"
+          }
+        ]
+      }
+    }
+  },
+  "rating_tables": {
+    "2.2.2_qol_addition_by_mi_band": {
+      "id": "2.2.2_qol_addition_by_mi_band",
+      "chapter": "2",
+      "chapter_title": "Quality of Life (QOL)",
+      "table_id": "2.2_qol_addition_by_mi_band",
+      "title": "Quality of Life Conversion Table",
+      "data": {
+        "mi_bands": [
+          {
+            "mi_min": 1,
+            "mi_max": 10,
+            "L1": 1,
+            "L2": 2,
+            "L3": null
+          },
+          {
+            "mi_min": 11,
+            "mi_max": 20,
+            "L1": 2,
+            "L2": 3,
+            "L3": 5
+          },
+          {
+            "mi_min": 21,
+            "mi_max": 30,
+            "L1": 3,
+            "L2": 5,
+            "L3": 7
+          },
+          {
+            "mi_min": 31,
+            "mi_max": 40,
+            "L1": 4,
+            "L2": 6,
+            "L3": 9
+          },
+          {
+            "mi_min": 41,
+            "mi_max": 50,
+            "L1": 5,
+            "L2": 7,
+            "L3": 11
+          },
+          {
+            "mi_min": 51,
+            "mi_max": 60,
+            "L1": 6,
+            "L2": 9,
+            "L3": 13
+          },
+          {
+            "mi_min": 61,
+            "mi_max": 70,
+            "L1": 7,
+            "L2": 11,
+            "L3": 15
+          },
+          {
+            "mi_min": 71,
+            "mi_max": 80,
+            "L1": 8,
+            "L2": 13,
+            "L3": 17
+          },
+          {
+            "mi_min": 81,
+            "mi_max": 100,
+            "L1": 10,
+            "L2": 15,
+            "L3": 20
+          }
+        ],
+        "notes": "VAC 2019 ToD — Table 2.2 QOL conversion by MI band (L1–L3).",
+        "table_number": "2.2",
+        "title": "Quality of Life Conversion Table"
+      },
+      "mi_bands": [
+        {
+          "mi_min": 1,
+          "mi_max": 10,
+          "L1": 1,
+          "L2": 2,
+          "L3": null
+        },
+        {
+          "mi_min": 11,
+          "mi_max": 20,
+          "L1": 2,
+          "L2": 3,
+          "L3": 5
+        },
+        {
+          "mi_min": 21,
+          "mi_max": 30,
+          "L1": 3,
+          "L2": 5,
+          "L3": 7
+        },
+        {
+          "mi_min": 31,
+          "mi_max": 40,
+          "L1": 4,
+          "L2": 6,
+          "L3": 9
+        },
+        {
+          "mi_min": 41,
+          "mi_max": 50,
+          "L1": 5,
+          "L2": 7,
+          "L3": 11
+        },
+        {
+          "mi_min": 51,
+          "mi_max": 60,
+          "L1": 6,
+          "L2": 9,
+          "L3": 13
+        },
+        {
+          "mi_min": 61,
+          "mi_max": 70,
+          "L1": 7,
+          "L2": 11,
+          "L3": 15
+        },
+        {
+          "mi_min": 71,
+          "mi_max": 80,
+          "L1": 8,
+          "L2": 13,
+          "L3": 17
+        },
+        {
+          "mi_min": 81,
+          "mi_max": 100,
+          "L1": 10,
+          "L2": 15,
+          "L3": 20
+        }
+      ],
+      "notes": "VAC 2019 ToD — Table 2.2 QOL conversion by MI band (L1–L3).",
+      "table_number": "2.2"
+    },
+    "3.3.1": {
+      "id": "3.3.1",
+      "chapter": "3",
+      "chapter_title": "Partially Contributing Impairment (PCT)",
+      "table_id": "3.1",
+      "title": "Partially Contributing Table",
+      "data": {
+        "type": "matrix_table",
+        "rows": [
+          "Complete",
+          "About 3/4",
+          "About 1/2",
+          "About 1/4",
+          "Not at all"
+        ],
+        "cols": [
+          ">=95",
+          "75–94",
+          "55–74",
+          "35–54",
+          "15–34",
+          "<15"
+        ],
+        "values": [
+          [
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI",
+            "=MI"
+          ],
+          [
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI",
+            "0.75*MI"
+          ],
+          [
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI",
+            "0.5*MI"
+          ],
+          [
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI",
+            "0.25*MI"
+          ],
+          [
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        ],
+        "interpolation": "none",
+        "table_number": "3.1",
+        "title": "Partially Contributing Table"
+      },
+      "type": "matrix_table",
+      "rows": [
+        "Complete",
+        "About 3/4",
+        "About 1/2",
+        "About 1/4",
+        "Not at all"
+      ],
+      "cols": [
+        ">=95",
+        "75–94",
+        "55–74",
+        "35–54",
+        "15–34",
+        "<15"
+      ],
+      "values": [
+        [
+          "=MI",
+          "=MI",
+          "=MI",
+          "=MI",
+          "=MI",
+          "=MI"
+        ],
+        [
+          "0.75*MI",
+          "0.75*MI",
+          "0.75*MI",
+          "0.75*MI",
+          "0.75*MI",
+          "0.75*MI"
+        ],
+        [
+          "0.5*MI",
+          "0.5*MI",
+          "0.5*MI",
+          "0.5*MI",
+          "0.5*MI",
+          "0.5*MI"
+        ],
+        [
+          "0.25*MI",
+          "0.25*MI",
+          "0.25*MI",
+          "0.25*MI",
+          "0.25*MI",
+          "0.25*MI"
+        ],
+        [
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0"
+        ]
+      ],
+      "interpolation": "none",
+      "table_number": "3.1"
+    },
+    "8.8.1_visual_levels": {
+      "id": "8.8.1_visual_levels",
+      "chapter": "8",
+      "chapter_title": "Visual Impairment",
+      "table_id": "8.1_visual_levels",
+      "title": "8.1_visual_levels",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Minor acuity loss."
+            ],
+            "rating": 5
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Moderate field restriction."
+            ],
+            "rating": 13
+          }
+        ]
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "MILD",
+          "label": "Mild",
+          "criteria": [
+            "Minor acuity loss."
+          ],
+          "rating": 5
+        },
+        {
+          "code": "MOD",
+          "label": "Moderate",
+          "criteria": [
+            "Moderate field restriction."
+          ],
+          "rating": 13
+        }
+      ]
+    },
+    "9.9.1_hearing_loss": {
+      "id": "9.9.1_hearing_loss",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "table_id": "9.1_hearing_loss",
+      "title": "Hearing Loss",
+      "data": {
+        "type": "numeric_band_table",
+        "units": "DSHL points",
+        "bands": [
+          {
+            "min": 0,
+            "max": 149,
+            "label": "Nil/Minimal",
+            "rating": 0
+          },
+          {
+            "min": 150,
+            "max": 199,
+            "label": "Mild",
+            "rating": "5-9"
+          },
+          {
+            "min": 200,
+            "max": 299,
+            "label": "Moderate",
+            "rating": "13-19"
+          },
+          {
+            "min": 300,
+            "max": 399,
+            "label": "Moderate-Severe",
+            "rating": "25-31"
+          },
+          {
+            "min": 400,
+            "max": 499,
+            "label": "Severe",
+            "rating": "40-49"
+          },
+          {
+            "min": 500,
+            "max": null,
+            "label": "Profound",
+            "rating": "58-68"
+          }
+        ],
+        "table_number": "9.1",
+        "title": "Hearing Loss"
+      },
+      "type": "numeric_band_table",
+      "units": "DSHL points",
+      "bands": [
+        {
+          "min": 0,
+          "max": 149,
+          "label": "Nil/Minimal",
+          "rating": 0
+        },
+        {
+          "min": 150,
+          "max": 199,
+          "label": "Mild",
+          "rating": "5-9"
+        },
+        {
+          "min": 200,
+          "max": 299,
+          "label": "Moderate",
+          "rating": "13-19"
+        },
+        {
+          "min": 300,
+          "max": 399,
+          "label": "Moderate-Severe",
+          "rating": "25-31"
+        },
+        {
+          "min": 400,
+          "max": 499,
+          "label": "Severe",
+          "rating": "40-49"
+        },
+        {
+          "min": 500,
+          "max": null,
+          "label": "Profound",
+          "rating": "58-68"
+        }
+      ],
+      "table_number": "9.1"
+    },
+    "9.9.2_otitis_eustachian": {
+      "id": "9.9.2_otitis_eustachian",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "table_id": "9.2_otitis_eustachian",
+      "title": "Otitis Media and Eustachian Tube Dysfunction",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "Asymptomatic or episodic; no ongoing treatment"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Intermittent infections; medical therapy 1–2×/yr"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "TWO",
+            "label": "Two",
+            "criteria": [
+              "Recurrent infections; persistent dysfunction; regular medication"
+            ],
+            "rating": 2
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Chronic suppuration; tympanic membrane damage; hearing impact"
+            ],
+            "rating": 5
+          }
+        ],
+        "table_number": "9.2",
+        "title": "Otitis Media and Eustachian Tube Dysfunction"
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "NIL",
+          "label": "Nil",
+          "criteria": [
+            "Asymptomatic or episodic; no ongoing treatment"
+          ],
+          "rating": 0
+        },
+        {
+          "code": "ONE",
+          "label": "One",
+          "criteria": [
+            "Intermittent infections; medical therapy 1–2×/yr"
+          ],
+          "rating": 1
+        },
+        {
+          "code": "TWO",
+          "label": "Two",
+          "criteria": [
+            "Recurrent infections; persistent dysfunction; regular medication"
+          ],
+          "rating": 2
+        },
+        {
+          "code": "FIVE",
+          "label": "Five",
+          "criteria": [
+            "Chronic suppuration; tympanic membrane damage; hearing impact"
+          ],
+          "rating": 5
+        }
+      ],
+      "table_number": "9.2"
+    },
+    "9.9.3_tinnitus": {
+      "id": "9.9.3_tinnitus",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "table_id": "9.3_tinnitus",
+      "title": "Tinnitus",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No consistent tinnitus or only fleeting episodes"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Occasional tinnitus without sleep or concentration impact"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Persistent tinnitus; requires strategies/devices; impacts rest or focus"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Severe, near-constant tinnitus with marked daily interference despite management"
+            ],
+            "rating": 10
+          }
+        ],
+        "table_number": "9.3",
+        "title": "Tinnitus"
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "NIL",
+          "label": "Nil",
+          "criteria": [
+            "No consistent tinnitus or only fleeting episodes"
+          ],
+          "rating": 0
+        },
+        {
+          "code": "ONE",
+          "label": "One",
+          "criteria": [
+            "Occasional tinnitus without sleep or concentration impact"
+          ],
+          "rating": 1
+        },
+        {
+          "code": "FIVE",
+          "label": "Five",
+          "criteria": [
+            "Persistent tinnitus; requires strategies/devices; impacts rest or focus"
+          ],
+          "rating": 5
+        },
+        {
+          "code": "TEN",
+          "label": "Ten",
+          "criteria": [
+            "Severe, near-constant tinnitus with marked daily interference despite management"
+          ],
+          "rating": 10
+        }
+      ],
+      "table_number": "9.3"
+    },
+    "9.9.4_vertigo_disequilibrium": {
+      "id": "9.9.4_vertigo_disequilibrium",
+      "chapter": "9",
+      "chapter_title": "Hearing Loss and Ear Conditions",
+      "table_id": "9.4_vertigo_disequilibrium",
+      "title": "9.4_vertigo_disequilibrium",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No true vertigo; occasional disequilibrium only"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Occasional vertigo; minimal ADL impact; no falls"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Recurrent vertigo with activity limitation; rare falls"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Frequent episodes; requires assistance/device; fall risk"
+            ],
+            "rating": 10
+          },
+          {
+            "code": "FIFTEEN",
+            "label": "Fifteen",
+            "criteria": [
+              "Severe, disabling disequilibrium with regular falls or inability to ambulate safely"
+            ],
+            "rating": 15
+          }
+        ]
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "NIL",
+          "label": "Nil",
+          "criteria": [
+            "No true vertigo; occasional disequilibrium only"
+          ],
+          "rating": 0
+        },
+        {
+          "code": "ONE",
+          "label": "One",
+          "criteria": [
+            "Occasional vertigo; minimal ADL impact; no falls"
+          ],
+          "rating": 1
+        },
+        {
+          "code": "FIVE",
+          "label": "Five",
+          "criteria": [
+            "Recurrent vertigo with activity limitation; rare falls"
+          ],
+          "rating": 5
+        },
+        {
+          "code": "TEN",
+          "label": "Ten",
+          "criteria": [
+            "Frequent episodes; requires assistance/device; fall risk"
+          ],
+          "rating": 10
+        },
+        {
+          "code": "FIFTEEN",
+          "label": "Fifteen",
+          "criteria": [
+            "Severe, disabling disequilibrium with regular falls or inability to ambulate safely"
+          ],
+          "rating": 15
+        }
+      ]
+    },
+    "17.17.ROM_spine": {
+      "id": "17.17.ROM_spine",
+      "chapter": "17",
+      "chapter_title": "Musculoskeletal (MSK)",
+      "table_id": "17.ROM_spine",
+      "title": "Spine",
+      "data": {
+        "type": "rom_table",
+        "segments": [
+          {
+            "name": "Cervical",
+            "motions": [
+              {
+                "motion": "Flexion",
+                "normal_range": [
+                  0,
+                  45
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 30,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Extension",
+                "normal_range": [
+                  0,
+                  45
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 30,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Rotation L",
+                "normal_range": [
+                  0,
+                  80
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 55,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 35,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Rotation R",
+                "normal_range": [
+                  0,
+                  80
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 55,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 35,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 15,
+                    "level": "severe"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Thoracolumbar",
+            "motions": [
+              {
+                "motion": "Flexion",
+                "normal_range": [
+                  0,
+                  60
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 45,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 30,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Extension",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Lateral Bend L",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              },
+              {
+                "motion": "Lateral Bend R",
+                "normal_range": [
+                  0,
+                  25
+                ],
+                "cutpoints": [
+                  {
+                    "threshold": 15,
+                    "level": "mild"
+                  },
+                  {
+                    "threshold": 10,
+                    "level": "moderate"
+                  },
+                  {
+                    "threshold": 5,
+                    "level": "severe"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "aggregation": "worst_motion",
+        "table_number": "17.ROM",
+        "title": "Spine"
+      },
+      "type": "rom_table",
+      "segments": [
+        {
+          "name": "Cervical",
+          "motions": [
+            {
+              "motion": "Flexion",
+              "normal_range": [
+                0,
+                45
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 30,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 15,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 5,
+                  "level": "severe"
+                }
+              ]
+            },
+            {
+              "motion": "Extension",
+              "normal_range": [
+                0,
+                45
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 30,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 15,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 5,
+                  "level": "severe"
+                }
+              ]
+            },
+            {
+              "motion": "Rotation L",
+              "normal_range": [
+                0,
+                80
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 55,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 35,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 15,
+                  "level": "severe"
+                }
+              ]
+            },
+            {
+              "motion": "Rotation R",
+              "normal_range": [
+                0,
+                80
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 55,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 35,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 15,
+                  "level": "severe"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Thoracolumbar",
+          "motions": [
+            {
+              "motion": "Flexion",
+              "normal_range": [
+                0,
+                60
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 45,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 30,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 10,
+                  "level": "severe"
+                }
+              ]
+            },
+            {
+              "motion": "Extension",
+              "normal_range": [
+                0,
+                25
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 15,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 10,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 5,
+                  "level": "severe"
+                }
+              ]
+            },
+            {
+              "motion": "Lateral Bend L",
+              "normal_range": [
+                0,
+                25
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 15,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 10,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 5,
+                  "level": "severe"
+                }
+              ]
+            },
+            {
+              "motion": "Lateral Bend R",
+              "normal_range": [
+                0,
+                25
+              ],
+              "cutpoints": [
+                {
+                  "threshold": 15,
+                  "level": "mild"
+                },
+                {
+                  "threshold": 10,
+                  "level": "moderate"
+                },
+                {
+                  "threshold": 5,
+                  "level": "severe"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "aggregation": "worst_motion",
+      "table_number": "17.ROM"
+    },
+    "17.17.ankylosis_optimal_positions": {
+      "id": "17.17.ankylosis_optimal_positions",
+      "chapter": "17",
+      "chapter_title": "Musculoskeletal (MSK)",
+      "table_id": "17.ankylosis_optimal_positions",
+      "title": "Optimal Positions",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "OPTIMAL",
+            "label": "Optimal position",
+            "criteria": [
+              "Ankylosis in functionally optimal position"
+            ],
+            "rating": "lower_band"
+          },
+          {
+            "code": "SUBOPTIMAL",
+            "label": "Suboptimal position",
+            "criteria": [
+              "Ankylosis in non-optimal position"
+            ],
+            "rating": "higher_band"
+          }
+        ],
+        "table_number": "17.ankylosis",
+        "title": "Optimal Positions"
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "OPTIMAL",
+          "label": "Optimal position",
+          "criteria": [
+            "Ankylosis in functionally optimal position"
+          ],
+          "rating": "lower_band"
+        },
+        {
+          "code": "SUBOPTIMAL",
+          "label": "Suboptimal position",
+          "criteria": [
+            "Ankylosis in non-optimal position"
+          ],
+          "rating": "higher_band"
+        }
+      ],
+      "table_number": "17.ankylosis"
+    },
+    "20.20.1_cognition": {
+      "id": "20.20.1_cognition",
+      "chapter": "20",
+      "chapter_title": "Neurological",
+      "table_id": "20.1_cognition",
+      "title": "20.1_cognition",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "No persistent deficits on history or testing"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Subjective complaints with minor executive/attention deficits; independent ADLs"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Clear deficits in memory/attention/executive function; needs strategies/supervision for complex tasks"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "SEV",
+            "label": "Severe",
+            "criteria": [
+              "Dependence for most instrumental ADLs; cannot manage safety-critical tasks"
+            ],
+            "rating": 10
+          },
+          {
+            "code": "PROF",
+            "label": "Profound",
+            "criteria": [
+              "Dependence for basic ADLs; pervasive cognitive failure"
+            ],
+            "rating": 15
+          }
+        ]
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "NIL",
+          "label": "Nil",
+          "criteria": [
+            "No persistent deficits on history or testing"
+          ],
+          "rating": 0
+        },
+        {
+          "code": "MILD",
+          "label": "Mild",
+          "criteria": [
+            "Subjective complaints with minor executive/attention deficits; independent ADLs"
+          ],
+          "rating": 1
+        },
+        {
+          "code": "MOD",
+          "label": "Moderate",
+          "criteria": [
+            "Clear deficits in memory/attention/executive function; needs strategies/supervision for complex tasks"
+          ],
+          "rating": 5
+        },
+        {
+          "code": "SEV",
+          "label": "Severe",
+          "criteria": [
+            "Dependence for most instrumental ADLs; cannot manage safety-critical tasks"
+          ],
+          "rating": 10
+        },
+        {
+          "code": "PROF",
+          "label": "Profound",
+          "criteria": [
+            "Dependence for basic ADLs; pervasive cognitive failure"
+          ],
+          "rating": 15
+        }
+      ]
+    },
+    "20.20.6_bowel_bladder": {
+      "id": "20.20.6_bowel_bladder",
+      "chapter": "20",
+      "chapter_title": "Neurological",
+      "table_id": "20.6_bowel_bladder",
+      "title": "20.6_bowel_bladder",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "NIL",
+            "label": "Nil",
+            "criteria": [
+              "Continent; occasional constipation/diarrhea without meds OR urinary urgency/frequency without meds"
+            ],
+            "rating": 0
+          },
+          {
+            "code": "ONE",
+            "label": "One",
+            "criteria": [
+              "Obstructed voiding with hesitancy/diminished stream; symptomatic; UTI 1–2/yr"
+            ],
+            "rating": 1
+          },
+          {
+            "code": "TWO",
+            "label": "Two",
+            "criteria": [
+              "Bowel: minor diet alterations or fecal soiling; OR symptomatic requiring intermittent medication. Bladder: recurrent LUTS needing medication"
+            ],
+            "rating": 2
+          },
+          {
+            "code": "FIVE",
+            "label": "Five",
+            "criteria": [
+              "Significant incontinence or severe dysfunction requiring continuous management"
+            ],
+            "rating": 5
+          },
+          {
+            "code": "TEN",
+            "label": "Ten",
+            "criteria": [
+              "Complete incontinence or need for indwelling devices with complications"
+            ],
+            "rating": 10
+          }
+        ]
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "NIL",
+          "label": "Nil",
+          "criteria": [
+            "Continent; occasional constipation/diarrhea without meds OR urinary urgency/frequency without meds"
+          ],
+          "rating": 0
+        },
+        {
+          "code": "ONE",
+          "label": "One",
+          "criteria": [
+            "Obstructed voiding with hesitancy/diminished stream; symptomatic; UTI 1–2/yr"
+          ],
+          "rating": 1
+        },
+        {
+          "code": "TWO",
+          "label": "Two",
+          "criteria": [
+            "Bowel: minor diet alterations or fecal soiling; OR symptomatic requiring intermittent medication. Bladder: recurrent LUTS needing medication"
+          ],
+          "rating": 2
+        },
+        {
+          "code": "FIVE",
+          "label": "Five",
+          "criteria": [
+            "Significant incontinence or severe dysfunction requiring continuous management"
+          ],
+          "rating": 5
+        },
+        {
+          "code": "TEN",
+          "label": "Ten",
+          "criteria": [
+            "Complete incontinence or need for indwelling devices with complications"
+          ],
+          "rating": 10
+        }
+      ]
+    },
+    "20.20.8_headaches": {
+      "id": "20.8_headaches",
+      "chapter": "20",
+      "chapter_title": "Neurological",
+      "table_id": "20.8_headaches",
+      "title": "Loss of Function — Headaches",
+      "data": {
+        "id": "20.8_headaches",
+        "title": "Loss of Function — Headaches",
+        "rating_scale": "MI",
+        "rows": [
+          {
+            "mi": 2,
+            "criteria_text": [
+              "Headache experienced less than 30 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "days_per_year": {
+                "min": 0,
+                "max": 29
+              },
+              "bed_rest": [
+                "none",
+                "occasional"
+              ]
+            }
+          },
+          {
+            "mi": 4,
+            "criteria_text": [
+              "Headache experienced less than 30 days per year. Bed rest is required during most episodes; or",
+              "Headache experienced 30–100 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "any_of": [
+                {
+                  "days_per_year": {
+                    "min": 0,
+                    "max": 29
+                  },
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "days_per_year": {
+                    "min": 30,
+                    "max": 100
+                  },
+                  "bed_rest": [
+                    "none",
+                    "occasional"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "mi": 9,
+            "criteria_text": [
+              "Headache is experienced 30–100 days per year and bed rest is required during most episodes; or",
+              "Headache occurs on a weekly basis and bed rest is required during most episodes; or",
+              "Headache experienced on more than 100 days per year. Bed rest not required or may be occasionally required."
+            ],
+            "criteria_structured": {
+              "any_of": [
+                {
+                  "days_per_year": {
+                    "min": 30,
+                    "max": 100
+                  },
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "weekly_basis": true,
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                },
+                {
+                  "days_per_year": {
+                    "min": 101,
+                    "max": 366
+                  },
+                  "bed_rest": [
+                    "none",
+                    "occasional"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "mi": 13,
+            "criteria_text": [
+              "Headache experienced on more than 100 days per year and is persistent and unremitting. Bed rest is required during most episodes."
+            ],
+            "criteria_structured": {
+              "all_of": [
+                {
+                  "days_per_year": {
+                    "min": 101,
+                    "max": 366
+                  }
+                },
+                {
+                  "persistent_unremitting": true
+                },
+                {
+                  "bed_rest": [
+                    "most_episodes"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "notes": "Ratings reflect VAC 2019 ToD Table 20.8. Criteria paraphrased for structure; keep source text in documents/ for reference."
+      },
+      "rating_scale": "MI",
+      "rows": [
+        {
+          "mi": 2,
+          "criteria_text": [
+            "Headache experienced less than 30 days per year. Bed rest not required or may be occasionally required."
+          ],
+          "criteria_structured": {
+            "days_per_year": {
+              "min": 0,
+              "max": 29
+            },
+            "bed_rest": [
+              "none",
+              "occasional"
+            ]
+          }
+        },
+        {
+          "mi": 4,
+          "criteria_text": [
+            "Headache experienced less than 30 days per year. Bed rest is required during most episodes; or",
+            "Headache experienced 30–100 days per year. Bed rest not required or may be occasionally required."
+          ],
+          "criteria_structured": {
+            "any_of": [
+              {
+                "days_per_year": {
+                  "min": 0,
+                  "max": 29
+                },
+                "bed_rest": [
+                  "most_episodes"
+                ]
+              },
+              {
+                "days_per_year": {
+                  "min": 30,
+                  "max": 100
+                },
+                "bed_rest": [
+                  "none",
+                  "occasional"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "mi": 9,
+          "criteria_text": [
+            "Headache is experienced 30–100 days per year and bed rest is required during most episodes; or",
+            "Headache occurs on a weekly basis and bed rest is required during most episodes; or",
+            "Headache experienced on more than 100 days per year. Bed rest not required or may be occasionally required."
+          ],
+          "criteria_structured": {
+            "any_of": [
+              {
+                "days_per_year": {
+                  "min": 30,
+                  "max": 100
+                },
+                "bed_rest": [
+                  "most_episodes"
+                ]
+              },
+              {
+                "weekly_basis": true,
+                "bed_rest": [
+                  "most_episodes"
+                ]
+              },
+              {
+                "days_per_year": {
+                  "min": 101,
+                  "max": 366
+                },
+                "bed_rest": [
+                  "none",
+                  "occasional"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "mi": 13,
+          "criteria_text": [
+            "Headache experienced on more than 100 days per year and is persistent and unremitting. Bed rest is required during most episodes."
+          ],
+          "criteria_structured": {
+            "all_of": [
+              {
+                "days_per_year": {
+                  "min": 101,
+                  "max": 366
+                }
+              },
+              {
+                "persistent_unremitting": true
+              },
+              {
+                "bed_rest": [
+                  "most_episodes"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "notes": "Ratings reflect VAC 2019 ToD Table 20.8. Criteria paraphrased for structure; keep source text in documents/ for reference."
+    },
+    "21.21.1_psychiatric": {
+      "id": "21.21.1_psychiatric",
+      "chapter": "21",
+      "chapter_title": "Psychiatric",
+      "table_id": "21.1_psychiatric",
+      "title": "21.1_psychiatric",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "MILD",
+            "label": "Mild",
+            "criteria": [
+              "Occasional symptoms; minimal impact."
+            ],
+            "rating": 5
+          },
+          {
+            "code": "MOD",
+            "label": "Moderate",
+            "criteria": [
+              "Frequent flashbacks; irritability."
+            ],
+            "rating": 13
+          },
+          {
+            "code": "MODSEV",
+            "label": "Moderate-Severe",
+            "criteria": [
+              "Persistent nightmares; withdrawn."
+            ],
+            "rating": 25
+          },
+          {
+            "code": "SEV",
+            "label": "Severe",
+            "criteria": [
+              "Vivid flashbacks; hypervigilance."
+            ],
+            "rating": 40
+          },
+          {
+            "code": "PROF",
+            "label": "Profound",
+            "criteria": [
+              "Constant flashbacks; profound isolation."
+            ],
+            "rating": 78
+          }
+        ]
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "MILD",
+          "label": "Mild",
+          "criteria": [
+            "Occasional symptoms; minimal impact."
+          ],
+          "rating": 5
+        },
+        {
+          "code": "MOD",
+          "label": "Moderate",
+          "criteria": [
+            "Frequent flashbacks; irritability."
+          ],
+          "rating": 13
+        },
+        {
+          "code": "MODSEV",
+          "label": "Moderate-Severe",
+          "criteria": [
+            "Persistent nightmares; withdrawn."
+          ],
+          "rating": 25
+        },
+        {
+          "code": "SEV",
+          "label": "Severe",
+          "criteria": [
+            "Vivid flashbacks; hypervigilance."
+          ],
+          "rating": 40
+        },
+        {
+          "code": "PROF",
+          "label": "Profound",
+          "criteria": [
+            "Constant flashbacks; profound isolation."
+          ],
+          "rating": 78
+        }
+      ]
+    },
+    "24.24.01_post_treatment": {
+      "id": "24.24.01_post_treatment",
+      "chapter": "24",
+      "chapter_title": "Tuberculosis",
+      "table_id": "24.01_post_treatment",
+      "title": "24.01_post_treatment",
+      "data": {
+        "type": "ordinal_levels",
+        "levels": [
+          {
+            "code": "T1",
+            "label": "First six months",
+            "criteria": [
+              "Post-hospital treatment period"
+            ],
+            "rating": 100
+          },
+          {
+            "code": "T2",
+            "label": "Second six months",
+            "criteria": [
+              "Mandatory minimum"
+            ],
+            "rating": "60% minimum"
+          },
+          {
+            "code": "T3",
+            "label": "Third six months",
+            "criteria": [
+              "Mandatory minimum"
+            ],
+            "rating": "30% minimum"
+          },
+          {
+            "code": "T4",
+            "label": "Thereafter",
+            "criteria": [
+              "Based on clinical evaluation"
+            ],
+            "rating": "per clinical"
+          }
+        ]
+      },
+      "type": "ordinal_levels",
+      "levels": [
+        {
+          "code": "T1",
+          "label": "First six months",
+          "criteria": [
+            "Post-hospital treatment period"
+          ],
+          "rating": 100
+        },
+        {
+          "code": "T2",
+          "label": "Second six months",
+          "criteria": [
+            "Mandatory minimum"
+          ],
+          "rating": "60% minimum"
+        },
+        {
+          "code": "T3",
+          "label": "Third six months",
+          "criteria": [
+            "Mandatory minimum"
+          ],
+          "rating": "30% minimum"
+        },
+        {
+          "code": "T4",
+          "label": "Thereafter",
+          "criteria": [
+            "Based on clinical evaluation"
+          ],
+          "rating": "per clinical"
+        }
+      ]
+    }
+  },
+  "chapters": {
+    "1": {
+      "title": "Introduction and Instructions",
+      "instructions": {
+        "text": "Introductory authority, definitions, and grandfathering provisions from user's source; used for UI copy and adjudicator guidance.",
+        "usage_steps": [
+          "Verify authority and application date.",
+          "Apply grandfathering where applicable.",
+          "Use medical impairment + QOL for total assessment."
+        ]
+      }
+    },
+    "2": {
+      "title": "Quality of Life (QOL)",
+      "tables": {
+        "2.2_qol_addition_by_mi_band": {
+          "mi_bands": [
+            {
+              "mi_min": 1,
+              "mi_max": 10,
+              "L1": 1,
+              "L2": 2,
+              "L3": null
+            },
+            {
+              "mi_min": 11,
+              "mi_max": 20,
+              "L1": 2,
+              "L2": 3,
+              "L3": 5
+            },
+            {
+              "mi_min": 21,
+              "mi_max": 30,
+              "L1": 3,
+              "L2": 5,
+              "L3": 7
+            },
+            {
+              "mi_min": 31,
+              "mi_max": 40,
+              "L1": 4,
+              "L2": 6,
+              "L3": 9
+            },
+            {
+              "mi_min": 41,
+              "mi_max": 50,
+              "L1": 5,
+              "L2": 7,
+              "L3": 11
+            },
+            {
+              "mi_min": 51,
+              "mi_max": 60,
+              "L1": 6,
+              "L2": 9,
+              "L3": 13
+            },
+            {
+              "mi_min": 61,
+              "mi_max": 70,
+              "L1": 7,
+              "L2": 11,
+              "L3": 15
+            },
+            {
+              "mi_min": 71,
+              "mi_max": 80,
+              "L1": 8,
+              "L2": 13,
+              "L3": 17
+            },
+            {
+              "mi_min": 81,
+              "mi_max": 100,
+              "L1": 10,
+              "L2": 15,
+              "L3": 20
+            }
+          ],
+          "notes": "VAC 2019 ToD — Table 2.2 QOL conversion by MI band (L1–L3).",
+          "table_number": "2.2",
+          "title": "Quality of Life Conversion Table"
+        }
+      },
+      "criteria": {
+        "level_determination": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "L1",
+              "label": "Level 1",
+              "criteria": [
+                "Mild interference with usual ADLs/work, recreation/community activities, and/or personal relationships due to the entitled condition(s).",
+                "Able to perform domestic activities independently but with greater effort; or able to work in usual occupation with difficulty and/or minor workplace modifications or task restructuring.",
+                "Able to drive/use public transport independently; may require adaptations or more frequent breaks.",
+                "Mild reduction in type/frequency/quality of recreational and community activities; activities remain satisfying with routine adjustments.",
+                "Mild reduction in scope/frequency/quality of usual social/interpersonal relationships; may avoid large gatherings; some family/social responsibilities limited by the entitled condition(s)."
+              ]
+            },
+            {
+              "code": "L2",
+              "label": "Level 2",
+              "criteria": [
+                "Moderate interference with ADLs/work, recreation/community activities, and/or personal relationships due to the entitled condition(s).",
+                "Domestic activities require assistance/special adaptations; OR unable to work full time in normal occupation or had to change occupation/hours because of the entitled condition(s).",
+                "Unable to drive but can travel using public or private transportation with assistance and/or vehicular adaptations.",
+                "Moderate reduction in recreational/community activities; requires assistance and structured changes to continue participation.",
+                "Moderate reduction in social/interpersonal relationships; relationships primarily with immediate family/close friends; most usual family responsibilities not carried out and/or distress with usual social activities."
+              ]
+            },
+            {
+              "code": "L3",
+              "label": "Level 3",
+              "criteria": [
+                "Extreme interference with ADLs/work, recreation/community activities, and/or personal relationships due to the entitled condition(s).",
+                "Not able to complete most domestic activities even with assistance/adaptations; OR unable to work due to the entitled condition(s).",
+                "Not able to use public or private transportation; dependent on transportation for the disabled.",
+                "Extreme limitation in recreational/community activities; unable to take part in usual or alternate activities.",
+                "Extreme reduction in social/interpersonal relationships; little or no contact with family/friends; relationships are severely strained; most family responsibilities not carried out."
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "3": {
+      "title": "Partially Contributing Impairment (PCT)",
+      "tables": {
+        "3.1": {
+          "type": "matrix_table",
+          "rows": [
+            "Complete",
+            "About 3/4",
+            "About 1/2",
+            "About 1/4",
+            "Not at all"
+          ],
+          "cols": [
+            ">=95",
+            "75–94",
+            "55–74",
+            "35–54",
+            "15–34",
+            "<15"
+          ],
+          "values": [
+            [
+              "=MI",
+              "=MI",
+              "=MI",
+              "=MI",
+              "=MI",
+              "=MI"
+            ],
+            [
+              "0.75*MI",
+              "0.75*MI",
+              "0.75*MI",
+              "0.75*MI",
+              "0.75*MI",
+              "0.75*MI"
+            ],
+            [
+              "0.5*MI",
+              "0.5*MI",
+              "0.5*MI",
+              "0.5*MI",
+              "0.5*MI",
+              "0.5*MI"
+            ],
+            [
+              "0.25*MI",
+              "0.25*MI",
+              "0.25*MI",
+              "0.25*MI",
+              "0.25*MI",
+              "0.25*MI"
+            ],
+            [
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0"
+            ]
+          ],
+          "interpolation": "none",
+          "table_number": "3.1",
+          "title": "Partially Contributing Table"
+        }
+      }
+    },
+    "4": {
+      "title": "Paired Organs and Paired Limbs",
+      "instructions": {
+        "text": "Combine side-specific impairments for paired structures.",
+        "usage_steps": [
+          "Rate each side separately.",
+          "Combine for total per VAC rules."
+        ]
+      }
+    },
+    "5": {
+      "title": "Attendance Allowance",
+      "instructions": {
+        "text": "Allowance for veterans requiring assistance with ADLs (grading not detailed in user's source).",
+        "usage_steps": [
+          "Assess dependency level.",
+          "Assign allowance grade."
+        ]
+      }
+    },
+    "6": {
+      "title": "Clothing Allowances",
+      "instructions": {
+        "text": "Allowances for clothing wear due to disability (criteria not detailed in user's source).",
+        "usage_steps": [
+          "Evaluate impact on clothing.",
+          "Assign allowance amount."
+        ]
+      }
+    },
+    "7": {
+      "title": "Exceptional Incapacity Allowance",
+      "instructions": {
+        "text": "For exceptional incapacity beyond standard ratings (criteria not detailed in user's source).",
+        "usage_steps": [
+          "Confirm eligibility.",
+          "Rate additional incapacity."
+        ]
+      }
+    },
+    "8": {
+      "title": "Visual Impairment",
+      "instructions": {
+        "text": "Rate based on visual acuity and field loss."
+      },
+      "tables": {
+        "8.1_visual_levels": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "MILD",
+              "label": "Mild",
+              "criteria": [
+                "Minor acuity loss."
+              ],
+              "rating": 5
+            },
+            {
+              "code": "MOD",
+              "label": "Moderate",
+              "criteria": [
+                "Moderate field restriction."
+              ],
+              "rating": 13
+            }
+          ]
+        }
+      }
+    },
+    "9": {
+      "title": "Hearing Loss and Ear Conditions",
+      "steps": [
+        "Compute DSHL using 500/1000/2000/3000 Hz.",
+        "Determine hearing loss rating via 9.1.",
+        "Assess tinnitus via 9.3; avoid QOL double count.",
+        "Rate vertigo/disequilibrium via 9.4; route to Neuro if central.",
+        "Otitis/Eustachian dysfunction via 9.2."
+      ],
+      "calculation_methods": {
+        "hearing_loss": {
+          "ref": "global.calculation_methods.DSHL"
+        }
+      },
+      "tables": {
+        "9.1_hearing_loss": {
+          "type": "numeric_band_table",
+          "units": "DSHL points",
+          "bands": [
+            {
+              "min": 0,
+              "max": 149,
+              "label": "Nil/Minimal",
+              "rating": 0
+            },
+            {
+              "min": 150,
+              "max": 199,
+              "label": "Mild",
+              "rating": "5-9"
+            },
+            {
+              "min": 200,
+              "max": 299,
+              "label": "Moderate",
+              "rating": "13-19"
+            },
+            {
+              "min": 300,
+              "max": 399,
+              "label": "Moderate-Severe",
+              "rating": "25-31"
+            },
+            {
+              "min": 400,
+              "max": 499,
+              "label": "Severe",
+              "rating": "40-49"
+            },
+            {
+              "min": 500,
+              "max": null,
+              "label": "Profound",
+              "rating": "58-68"
+            }
+          ],
+          "table_number": "9.1",
+          "title": "Hearing Loss"
+        },
+        "9.2_otitis_eustachian": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "NIL",
+              "label": "Nil",
+              "criteria": [
+                "Asymptomatic or episodic; no ongoing treatment"
+              ],
+              "rating": 0
+            },
+            {
+              "code": "ONE",
+              "label": "One",
+              "criteria": [
+                "Intermittent infections; medical therapy 1–2×/yr"
+              ],
+              "rating": 1
+            },
+            {
+              "code": "TWO",
+              "label": "Two",
+              "criteria": [
+                "Recurrent infections; persistent dysfunction; regular medication"
+              ],
+              "rating": 2
+            },
+            {
+              "code": "FIVE",
+              "label": "Five",
+              "criteria": [
+                "Chronic suppuration; tympanic membrane damage; hearing impact"
+              ],
+              "rating": 5
+            }
+          ],
+          "table_number": "9.2",
+          "title": "Otitis Media and Eustachian Tube Dysfunction"
+        },
+        "9.3_tinnitus": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "NIL",
+              "label": "Nil",
+              "criteria": [
+                "No consistent tinnitus or only fleeting episodes"
+              ],
+              "rating": 0
+            },
+            {
+              "code": "ONE",
+              "label": "One",
+              "criteria": [
+                "Occasional tinnitus without sleep or concentration impact"
+              ],
+              "rating": 1
+            },
+            {
+              "code": "FIVE",
+              "label": "Five",
+              "criteria": [
+                "Persistent tinnitus; requires strategies/devices; impacts rest or focus"
+              ],
+              "rating": 5
+            },
+            {
+              "code": "TEN",
+              "label": "Ten",
+              "criteria": [
+                "Severe, near-constant tinnitus with marked daily interference despite management"
+              ],
+              "rating": 10
+            }
+          ],
+          "table_number": "9.3",
+          "title": "Tinnitus"
+        },
+        "9.4_vertigo_disequilibrium": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "NIL",
+              "label": "Nil",
+              "criteria": [
+                "No true vertigo; occasional disequilibrium only"
+              ],
+              "rating": 0
+            },
+            {
+              "code": "ONE",
+              "label": "One",
+              "criteria": [
+                "Occasional vertigo; minimal ADL impact; no falls"
+              ],
+              "rating": 1
+            },
+            {
+              "code": "FIVE",
+              "label": "Five",
+              "criteria": [
+                "Recurrent vertigo with activity limitation; rare falls"
+              ],
+              "rating": 5
+            },
+            {
+              "code": "TEN",
+              "label": "Ten",
+              "criteria": [
+                "Frequent episodes; requires assistance/device; fall risk"
+              ],
+              "rating": 10
+            },
+            {
+              "code": "FIFTEEN",
+              "label": "Fifteen",
+              "criteria": [
+                "Severe, disabling disequilibrium with regular falls or inability to ambulate safely"
+              ],
+              "rating": 15
+            }
+          ]
+        }
+      }
+    },
+    "10": {
+      "title": "Nose, Throat and Sinus",
+      "instructions": {
+        "text": "Rate based on respiratory and sensory loss.",
+        "usage_steps": [
+          "Evaluate symptoms.",
+          "Apply relevant table + QOL."
+        ]
+      }
+    },
+    "11": {
+      "title": "Dental and Oral",
+      "instructions": {
+        "text": "Rate based on mastication and speech impact.",
+        "usage_steps": [
+          "Assess function loss.",
+          "Rate from table."
+        ]
+      }
+    },
+    "12": {
+      "title": "Cardiorespiratory",
+      "instructions": {
+        "text": "Rate using METs or NYHA class.",
+        "usage_steps": [
+          "Measure exercise tolerance.",
+          "Apply rating table + QOL."
+        ]
+      }
+    },
+    "13": {
+      "title": "Hypertension and Vascular",
+      "instructions": {
+        "text": "Rate based on end-organ damage.",
+        "usage_steps": [
+          "Evaluate complications.",
+          "Rate accordingly."
+        ]
+      }
+    },
+    "14": {
+      "title": "Gastrointestinal",
+      "instructions": {
+        "text": "Rate based on digestion and nutrition impact.",
+        "usage_steps": [
+          "Assess symptoms.",
+          "Apply table."
+        ]
+      }
+    },
+    "15": {
+      "title": "Endocrine and Metabolic",
+      "instructions": {
+        "text": "Rate based on hormonal imbalance effects.",
+        "usage_steps": [
+          "Evaluate systemic impact.",
+          "Rate + QOL."
+        ]
+      }
+    },
+    "16": {
+      "title": "Urinary, Sexual and Reproductive",
+      "instructions": {
+        "text": "Rate based on continence and fertility loss.",
+        "usage_steps": [
+          "Assess function.",
+          "Apply table."
+        ]
+      }
+    },
+    "17": {
+      "title": "Musculoskeletal (MSK)",
+      "steps": [
+        "Identify affected region(s): spine, upper limb joints, lower limb joints.",
+        "Measure ROM; identify ankylosis if present.",
+        "Rate per joint/segment table; apply aggregation rule.",
+        "Consider neurological signs; route to Chapter 20 as needed.",
+        "Avoid double-counting pain/fatigue in QOL."
+      ],
+      "tables": {
+        "17.ROM_spine": {
+          "type": "rom_table",
+          "segments": [
+            {
+              "name": "Cervical",
+              "motions": [
+                {
+                  "motion": "Flexion",
+                  "normal_range": [
+                    0,
+                    45
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 30,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 15,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 5,
+                      "level": "severe"
+                    }
+                  ]
+                },
+                {
+                  "motion": "Extension",
+                  "normal_range": [
+                    0,
+                    45
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 30,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 15,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 5,
+                      "level": "severe"
+                    }
+                  ]
+                },
+                {
+                  "motion": "Rotation L",
+                  "normal_range": [
+                    0,
+                    80
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 55,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 35,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 15,
+                      "level": "severe"
+                    }
+                  ]
+                },
+                {
+                  "motion": "Rotation R",
+                  "normal_range": [
+                    0,
+                    80
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 55,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 35,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 15,
+                      "level": "severe"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Thoracolumbar",
+              "motions": [
+                {
+                  "motion": "Flexion",
+                  "normal_range": [
+                    0,
+                    60
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 45,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 30,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 10,
+                      "level": "severe"
+                    }
+                  ]
+                },
+                {
+                  "motion": "Extension",
+                  "normal_range": [
+                    0,
+                    25
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 15,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 10,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 5,
+                      "level": "severe"
+                    }
+                  ]
+                },
+                {
+                  "motion": "Lateral Bend L",
+                  "normal_range": [
+                    0,
+                    25
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 15,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 10,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 5,
+                      "level": "severe"
+                    }
+                  ]
+                },
+                {
+                  "motion": "Lateral Bend R",
+                  "normal_range": [
+                    0,
+                    25
+                  ],
+                  "cutpoints": [
+                    {
+                      "threshold": 15,
+                      "level": "mild"
+                    },
+                    {
+                      "threshold": 10,
+                      "level": "moderate"
+                    },
+                    {
+                      "threshold": 5,
+                      "level": "severe"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "aggregation": "worst_motion",
+          "table_number": "17.ROM",
+          "title": "Spine"
+        },
+        "17.ankylosis_optimal_positions": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "OPTIMAL",
+              "label": "Optimal position",
+              "criteria": [
+                "Ankylosis in functionally optimal position"
+              ],
+              "rating": "lower_band"
+            },
+            {
+              "code": "SUBOPTIMAL",
+              "label": "Suboptimal position",
+              "criteria": [
+                "Ankylosis in non-optimal position"
+              ],
+              "rating": "higher_band"
+            }
+          ],
+          "table_number": "17.ankylosis",
+          "title": "Optimal Positions"
+        }
+      }
+    },
+    "18": {
+      "title": "Malignant",
+      "instructions": {
+        "text": "Rate based on cancer stage and treatment impact.",
+        "usage_steps": [
+          "Stage malignancy.",
+          "Rate functional loss."
+        ]
+      }
+    },
+    "19": {
+      "title": "Activities of Daily Living",
+      "instructions": {
+        "text": "Rate ADL/IADL loss; updated October 2017.",
+        "usage_steps": [
+          "Score ADL deficiencies.",
+          "Apply rating."
+        ]
+      }
+    },
+    "20": {
+      "title": "Neurological",
+      "steps": [
+        "Identify domain(s): cognition, communication, motor, sensory, autonomic, seizure, consciousness.",
+        "Use domain-specific tables (20.x).",
+        "Sum domain impairments to MI; apply PCT as needed.",
+        "Route vestibular to 9.4 when peripheral; nociceptive pain to MSK where appropriate."
+      ],
+      "tables": {
+        "20.1_cognition": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "NIL",
+              "label": "Nil",
+              "criteria": [
+                "No persistent deficits on history or testing"
+              ],
+              "rating": 0
+            },
+            {
+              "code": "MILD",
+              "label": "Mild",
+              "criteria": [
+                "Subjective complaints with minor executive/attention deficits; independent ADLs"
+              ],
+              "rating": 1
+            },
+            {
+              "code": "MOD",
+              "label": "Moderate",
+              "criteria": [
+                "Clear deficits in memory/attention/executive function; needs strategies/supervision for complex tasks"
+              ],
+              "rating": 5
+            },
+            {
+              "code": "SEV",
+              "label": "Severe",
+              "criteria": [
+                "Dependence for most instrumental ADLs; cannot manage safety-critical tasks"
+              ],
+              "rating": 10
+            },
+            {
+              "code": "PROF",
+              "label": "Profound",
+              "criteria": [
+                "Dependence for basic ADLs; pervasive cognitive failure"
+              ],
+              "rating": 15
+            }
+          ]
+        },
+        "20.6_bowel_bladder": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "NIL",
+              "label": "Nil",
+              "criteria": [
+                "Continent; occasional constipation/diarrhea without meds OR urinary urgency/frequency without meds"
+              ],
+              "rating": 0
+            },
+            {
+              "code": "ONE",
+              "label": "One",
+              "criteria": [
+                "Obstructed voiding with hesitancy/diminished stream; symptomatic; UTI 1–2/yr"
+              ],
+              "rating": 1
+            },
+            {
+              "code": "TWO",
+              "label": "Two",
+              "criteria": [
+                "Bowel: minor diet alterations or fecal soiling; OR symptomatic requiring intermittent medication. Bladder: recurrent LUTS needing medication"
+              ],
+              "rating": 2
+            },
+            {
+              "code": "FIVE",
+              "label": "Five",
+              "criteria": [
+                "Significant incontinence or severe dysfunction requiring continuous management"
+              ],
+              "rating": 5
+            },
+            {
+              "code": "TEN",
+              "label": "Ten",
+              "criteria": [
+                "Complete incontinence or need for indwelling devices with complications"
+              ],
+              "rating": 10
+            }
+          ]
+        },
+        "20.8_headaches": {
+          "id": "20.8_headaches",
+          "title": "Loss of Function — Headaches",
+          "rating_scale": "MI",
+          "rows": [
+            {
+              "mi": 2,
+              "criteria_text": [
+                "Headache experienced less than 30 days per year. Bed rest not required or may be occasionally required."
+              ],
+              "criteria_structured": {
+                "days_per_year": {
+                  "min": 0,
+                  "max": 29
+                },
+                "bed_rest": [
+                  "none",
+                  "occasional"
+                ]
+              }
+            },
+            {
+              "mi": 4,
+              "criteria_text": [
+                "Headache experienced less than 30 days per year. Bed rest is required during most episodes; or",
+                "Headache experienced 30–100 days per year. Bed rest not required or may be occasionally required."
+              ],
+              "criteria_structured": {
+                "any_of": [
+                  {
+                    "days_per_year": {
+                      "min": 0,
+                      "max": 29
+                    },
+                    "bed_rest": [
+                      "most_episodes"
+                    ]
+                  },
+                  {
+                    "days_per_year": {
+                      "min": 30,
+                      "max": 100
+                    },
+                    "bed_rest": [
+                      "none",
+                      "occasional"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "mi": 9,
+              "criteria_text": [
+                "Headache is experienced 30–100 days per year and bed rest is required during most episodes; or",
+                "Headache occurs on a weekly basis and bed rest is required during most episodes; or",
+                "Headache experienced on more than 100 days per year. Bed rest not required or may be occasionally required."
+              ],
+              "criteria_structured": {
+                "any_of": [
+                  {
+                    "days_per_year": {
+                      "min": 30,
+                      "max": 100
+                    },
+                    "bed_rest": [
+                      "most_episodes"
+                    ]
+                  },
+                  {
+                    "weekly_basis": true,
+                    "bed_rest": [
+                      "most_episodes"
+                    ]
+                  },
+                  {
+                    "days_per_year": {
+                      "min": 101,
+                      "max": 366
+                    },
+                    "bed_rest": [
+                      "none",
+                      "occasional"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "mi": 13,
+              "criteria_text": [
+                "Headache experienced on more than 100 days per year and is persistent and unremitting. Bed rest is required during most episodes."
+              ],
+              "criteria_structured": {
+                "all_of": [
+                  {
+                    "days_per_year": {
+                      "min": 101,
+                      "max": 366
+                    }
+                  },
+                  {
+                    "persistent_unremitting": true
+                  },
+                  {
+                    "bed_rest": [
+                      "most_episodes"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "notes": "Ratings reflect VAC 2019 ToD Table 20.8. Criteria paraphrased for structure; keep source text in documents/ for reference."
+        }
+      }
+    },
+    "21": {
+      "title": "Psychiatric",
+      "instructions": {
+        "text": "Impairment ratings for mood/anxiety disorders (e.g., PTSD) from user's source."
+      },
+      "tables": {
+        "21.1_psychiatric": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "MILD",
+              "label": "Mild",
+              "criteria": [
+                "Occasional symptoms; minimal impact."
+              ],
+              "rating": 5
+            },
+            {
+              "code": "MOD",
+              "label": "Moderate",
+              "criteria": [
+                "Frequent flashbacks; irritability."
+              ],
+              "rating": 13
+            },
+            {
+              "code": "MODSEV",
+              "label": "Moderate-Severe",
+              "criteria": [
+                "Persistent nightmares; withdrawn."
+              ],
+              "rating": 25
+            },
+            {
+              "code": "SEV",
+              "label": "Severe",
+              "criteria": [
+                "Vivid flashbacks; hypervigilance."
+              ],
+              "rating": 40
+            },
+            {
+              "code": "PROF",
+              "label": "Profound",
+              "criteria": [
+                "Constant flashbacks; profound isolation."
+              ],
+              "rating": 78
+            }
+          ]
+        }
+      },
+      "policy": {
+        "auto_bracket_psychiatric_conditions": true,
+        "bracket_activation_criteria": {
+          "trigger_if_any_entitled_diagnoses": [
+            "PTSD",
+            "Depression",
+            "Anxiety",
+            "Adjustment Disorder",
+            "Panic Disorder",
+            "Bipolar Disorder"
+          ],
+          "evidence_signals": [
+            "psych.symptoms_present",
+            "prior_awards.chapter==21"
+          ]
+        }
+      }
+    },
+    "22": {
+      "title": "Skin",
+      "instructions": {
+        "text": "Rate based on area and functional impact.",
+        "usage_steps": [
+          "Measure affected area.",
+          "Rate + QOL."
+        ]
+      }
+    },
+    "23": {
+      "title": "Hemopoietic",
+      "instructions": {
+        "text": "Rate blood disorders based on treatment needs.",
+        "usage_steps": [
+          "Assess anemia or clotting issues.",
+          "Apply rating."
+        ]
+      }
+    },
+    "24": {
+      "title": "Tuberculosis",
+      "instructions": {
+        "text": "Post-treatment mandatory temporal ratings per user's source; non-pulmonary components routed to relevant chapters."
+      },
+      "tables": {
+        "24.01_post_treatment": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "T1",
+              "label": "First six months",
+              "criteria": [
+                "Post-hospital treatment period"
+              ],
+              "rating": 100
+            },
+            {
+              "code": "T2",
+              "label": "Second six months",
+              "criteria": [
+                "Mandatory minimum"
+              ],
+              "rating": "60% minimum"
+            },
+            {
+              "code": "T3",
+              "label": "Third six months",
+              "criteria": [
+                "Mandatory minimum"
+              ],
+              "rating": "30% minimum"
+            },
+            {
+              "code": "T4",
+              "label": "Thereafter",
+              "criteria": [
+                "Based on clinical evaluation"
+              ],
+              "rating": "per clinical"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "path_index": {
+    "vac.21.1": "chapters.21.tables.21.1_psychiatric",
+    "vac.2.2": "chapters.2.tables.2.2_qol_addition_by_mi_band",
+    "vac.20.8": "chapters.20.tables.20.8_headaches"
+  },
+  "conversion_info": {
+    "converted_from": "chapter_based_structure",
+    "conversion_timestamp": "2025-09-18",
+    "original_chapters": 24,
+    "extracted_conditions": 14,
+    "extracted_rating_tables": 14,
+    "note": "All original chapter data preserved. Conditions and rating_tables extracted for flat access."
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "schema_version": "0.4.0",
+  "source": {
+    "document": "VAC_All-Chapter-TOD-April-2019-EN.docx",
+    "origin": "Veterans Affairs Canada — 2019 Table of Disabilities",
+    "last_verified": "2025-08-10"
+  },
+  "chapters": {
+    "2": {
+      "title": "Quality of Life (QOL)",
+      "tables": {
+        "2.2_qol_addition_by_mi_band": {
+          "mi_bands": [
+            {"mi_min": 1, "mi_max": 10, "L1": 1, "L2": 2, "L3": null},
+            {"mi_min": 11, "mi_max": 20, "L1": 2, "L2": 3, "L3": 5},
+            {"mi_min": 21, "mi_max": 30, "L1": 3, "L2": 5, "L3": 7},
+            {"mi_min": 31, "mi_max": 40, "L1": 4, "L2": 6, "L3": 9},
+            {"mi_min": 41, "mi_max": 50, "L1": 5, "L2": 7, "L3": 11},
+            {"mi_min": 51, "mi_max": 60, "L1": 6, "L2": 9, "L3": 13},
+            {"mi_min": 61, "mi_max": 70, "L1": 7, "L2": 11, "L3": 15},
+            {"mi_min": 71, "mi_max": 80, "L1": 8, "L2": 13, "L3": 17},
+            {"mi_min": 81, "mi_max": 100, "L1": 10, "L2": 15, "L3": 20}
+          ]
+        }
+      }
+    },
+    "3": {
+      "title": "Partially Contributing Impairment (PCT)",
+      "tables": {
+        "3.1": {
+          "type": "matrix_table",
+          "contribution_factors": {
+            "complete": 1.0,
+            "about_3_4": 0.75,
+            "about_1_2": 0.5,
+            "about_1_4": 0.25,
+            "not_at_all": 0.0
+          }
+        }
+      }
+    },
+    "21": {
+      "title": "Psychiatric",
+      "tables": {
+        "21.4_psychiatric": {
+          "type": "ordinal_levels",
+          "levels": [
+            {
+              "code": "MILD",
+              "label": "Mild",
+              "criteria": ["Occasional symptoms; minimal impact"],
+              "rating": 5
+            },
+            {
+              "code": "MOD",
+              "label": "Moderate", 
+              "criteria": ["Frequent symptoms; moderate impact"],
+              "rating": 13
+            },
+            {
+              "code": "MODSEV",
+              "label": "Moderate-Severe",
+              "criteria": ["Persistent symptoms; significant impact"],
+              "rating": 25
+            },
+            {
+              "code": "SEV", 
+              "label": "Severe",
+              "criteria": ["Severe symptoms; major impact"],
+              "rating": 40
+            },
+            {
+              "code": "PROF",
+              "label": "Profound",
+              "criteria": ["Constant symptoms; profound impact"],
+              "rating": 78
+            }
+          ]
+        }
+      }
+    }
+  }
+}
