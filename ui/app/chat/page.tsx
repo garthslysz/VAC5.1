@@ -31,7 +31,10 @@ function AssessmentChatContent() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [caseId, setCaseId] = useState<string>('')
   const [assessmentStatus, setAssessmentStatus] = useState<'not-started' | 'in-progress' | 'completed'>('not-started')
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [uploadedFileIds, setUploadedFileIds] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const paramCaseId = searchParams.get('case_id')
@@ -69,6 +72,33 @@ What case would you like to assess today?`,
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    setAttachedFiles(prev => [...prev, ...files])
+    // Clear the input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const removeFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const uploadFiles = async () => {
+    if (attachedFiles.length === 0) return
+
+    try {
+      const result = await api.uploadFiles(attachedFiles, caseId || undefined)
+      const fileIds = result.files?.map((file: any) => file.file_id) || []
+      setUploadedFileIds(fileIds)
+      setAttachedFiles([]) // Clear attached files after upload
+    } catch (error) {
+      console.error('File upload failed:', error)
+      // Keep files in attached state so user can retry
+    }
+  }
+
   const sendMessage = async () => {
     if (!inputMessage.trim() || loading) return
 
@@ -88,6 +118,7 @@ What case would you like to assess today?`,
         message: inputMessage,
         conversation_id: conversationId || undefined,
         case_id: caseId || undefined,
+        files: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
         context: `Current case ID: ${caseId || 'New case'}, Assessment status: ${assessmentStatus}`
       })
 
@@ -105,6 +136,10 @@ What case would you like to assess today?`,
       }
 
       setMessages(prev => [...prev, assistantMessage])
+
+      // Clear attached files after sending
+      setAttachedFiles([])
+      setUploadedFileIds([])
 
       // Update assessment status based on response
       if (response.metadata?.assessment_complete) {
@@ -140,6 +175,8 @@ What case would you like to assess today?`,
     setCaseId('')
     setAssessmentStatus('not-started')
     setCurrentCase(null)
+    setAttachedFiles([])
+    setUploadedFileIds([])
   }
 
   const getStatusIcon = () => {
@@ -203,7 +240,7 @@ What case would you like to assess today?`,
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col h-screen">
+      <div className="flex flex-col h-full">
         {/* Header */}
         <div className="bg-white border-b border-vac-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -291,6 +328,53 @@ What case would you like to assess today?`,
 
         {/* Input Area */}
         <div className="bg-white border-t border-vac-gray-200 px-6 py-4">
+          {/* Attached Files */}
+          {(attachedFiles.length > 0 || uploadedFileIds.length > 0) && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-vac-gray-700">
+                  Attached Files ({attachedFiles.length + uploadedFileIds.length})
+                </span>
+                {attachedFiles.length > 0 && (
+                  <button
+                    onClick={uploadFiles}
+                    className="text-xs vac-button-primary"
+                    disabled={loading}
+                  >
+                    Upload Files
+                  </button>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                {attachedFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between bg-vac-gray-50 rounded p-2">
+                    <div className="flex items-center space-x-2">
+                      <DocumentTextIcon className="w-4 h-4 text-vac-gray-600" />
+                      <span className="text-sm text-vac-gray-900">{file.name}</span>
+                      <span className="text-xs text-vac-gray-500">
+                        ({(file.size / 1024 / 1024).toFixed(1)}MB)
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => removeFile(index)}
+                      className="text-vac-gray-400 hover:text-red-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                
+                {uploadedFileIds.map((fileId, index) => (
+                  <div key={fileId} className="flex items-center space-x-2 bg-green-50 rounded p-2">
+                    <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                    <span className="text-sm text-green-900">File uploaded (ID: {fileId.substring(0, 8)}...)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-end space-x-3">
             <div className="flex-1">
               <label htmlFor="message-input" className="sr-only">
@@ -306,6 +390,16 @@ What case would you like to assess today?`,
                 onKeyPress={handleKeyPress}
                 disabled={loading}
               />
+              
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.docx,.doc,.txt,.json"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
             </div>
             <div className="flex flex-col space-y-2">
               <button
@@ -317,11 +411,11 @@ What case would you like to assess today?`,
                 <span>Send</span>
               </button>
               <button
-                onClick={() => {/* Implement file upload */}}
+                onClick={() => fileInputRef.current?.click()}
                 className="vac-button-secondary flex items-center space-x-2 text-sm"
               >
                 <DocumentTextIcon className="w-4 h-4" />
-                <span>Upload</span>
+                <span>Upload ({attachedFiles.length + uploadedFileIds.length})</span>
               </button>
             </div>
           </div>

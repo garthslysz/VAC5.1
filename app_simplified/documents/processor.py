@@ -24,6 +24,8 @@ class DocumentProcessor:
     def __init__(self):
         self.processed_files = {}  # In-memory storage for demo
         self.case_files = {}  # Maps case_id to list of file_ids
+        self.upload_dir = Path("data/uploads")
+        self.upload_dir.mkdir(exist_ok=True)
     
     async def process_file(
         self,
@@ -48,6 +50,11 @@ class DocumentProcessor:
             
             # Read file content
             content = await file.read()
+            
+            # Save file to disk for persistence
+            file_path = self.upload_dir / f"{file_id}_{filename}"
+            with open(file_path, "wb") as f:
+                f.write(content)
             
             # Reset file pointer for potential re-reading
             await file.seek(0)
@@ -84,6 +91,7 @@ class DocumentProcessor:
                 "filename": filename,
                 "file_type": file_type,
                 "file_size": len(content),
+                "file_path": str(file_path),
                 "extracted_text": extracted_text,
                 "text_length": len(extracted_text),
                 "medical_analysis": medical_analysis,
@@ -251,7 +259,7 @@ class DocumentProcessor:
             
             case_files = []
             for file_id in file_ids:
-                file_info = self.processed_files.get(file_id)
+                file_info = await self.get_file_content(file_id)
                 if file_info:
                     # Return summary info (not full extracted text)
                     case_files.append({
@@ -273,12 +281,84 @@ class DocumentProcessor:
     
     async def get_file_content(self, file_id: str) -> Optional[Dict[str, Any]]:
         """Get full file content including extracted text"""
-        return self.processed_files.get(file_id)
+        file_info = self.processed_files.get(file_id)
+        if file_info:
+            return file_info
+        
+        # Check if file exists on disk
+        for file_path in self.upload_dir.glob(f"{file_id}_*"):
+            if file_path.exists():
+                # Re-extract content from disk
+                with open(file_path, "rb") as f:
+                    content = f.read()
+                
+                filename = file_path.name.replace(f"{file_id}_", "")
+                file_type = self._get_file_type(filename)
+                
+                # Re-extract text
+                extracted_text = await self._extract_text_from_content(content, filename)
+                medical_analysis = await self._analyze_medical_content(extracted_text)
+                
+                file_info = {
+                    "file_id": file_id,
+                    "filename": filename,
+                    "file_type": file_type,
+                    "file_size": len(content),
+                    "file_path": str(file_path),
+                    "extracted_text": extracted_text,
+                    "text_length": len(extracted_text),
+                    "medical_analysis": medical_analysis,
+                    "processed_at": datetime.now().isoformat(),
+                    "status": "processed"
+                }
+                
+                # Cache in memory
+                self.processed_files[file_id] = file_info
+                return file_info
+        
+        return None
+    
+    def _get_file_type(self, filename: str) -> str:
+        """Determine file type from filename"""
+        file_extension = Path(filename).suffix.lower()
+        if file_extension == ".pdf":
+            return "PDF"
+        elif file_extension in [".docx", ".doc"]:
+            return "Word Document"
+        elif file_extension == ".txt":
+            return "Text Document"
+        elif file_extension == ".json":
+            return "JSON Document"
+        else:
+            return "Unknown"
+    
+    async def _extract_text_from_content(self, content: bytes, filename: str) -> str:
+        """Extract text from file content"""
+        file_extension = Path(filename).suffix.lower()
+        
+        if file_extension == ".pdf":
+            return await self._extract_pdf_text(content)
+        elif file_extension in [".docx", ".doc"]:
+            return await self._extract_docx_text(content)
+        elif file_extension == ".txt":
+            return content.decode('utf-8', errors='ignore')
+        elif file_extension == ".json":
+            return content.decode('utf-8', errors='ignore')
+        else:
+            try:
+                return content.decode('utf-8', errors='ignore')
+            except:
+                return "Unable to extract text from file"
     
     async def delete_file(self, file_id: str) -> bool:
         """Delete a processed file"""
         try:
             if file_id in self.processed_files:
+                file_info = self.processed_files[file_id]
+                file_path = file_info.get("file_path")
+                if file_path and Path(file_path).exists():
+                    Path(file_path).unlink()
+                
                 # Remove from case associations
                 for case_id, file_list in self.case_files.items():
                     if file_id in file_list:
@@ -287,6 +367,12 @@ class DocumentProcessor:
                 # Remove file info
                 del self.processed_files[file_id]
                 return True
+            
+            # Check if file exists on disk
+            for file_path in self.upload_dir.glob(f"{file_id}_*"):
+                if file_path.exists():
+                    file_path.unlink()
+                    return True
             
             return False
             
@@ -297,6 +383,11 @@ class DocumentProcessor:
     def get_stats(self) -> Dict[str, Any]:
         """Get processing statistics"""
         total_files = len(self.processed_files)
+        
+        # Count files on disk
+        disk_files = list(self.upload_dir.glob("*"))
+        total_disk_files = len(disk_files)
+        
         successful = len([f for f in self.processed_files.values() if f.get("status") == "processed"])
         failed = total_files - successful
         
@@ -307,6 +398,7 @@ class DocumentProcessor:
         
         return {
             "total_files": total_files,
+            "total_disk_files": total_disk_files,
             "successful": successful,
             "failed": failed,
             "file_types": file_types,
